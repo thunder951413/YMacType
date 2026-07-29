@@ -28,19 +28,22 @@ foreach ($entry in $files.GetEnumerator()) {
         Join-Path $packageRoot $entry.Value)
 }
 
-$checksums = Get-ChildItem -LiteralPath $packageRoot -File |
+$packageFiles = $files.Values |
+    ForEach-Object { Get-Item -LiteralPath (Join-Path $packageRoot $_) }
+$checksumPath = Join-Path $packageRoot 'SHA256SUMS.txt'
+$checksums = $packageFiles |
     Sort-Object Name |
     ForEach-Object {
         $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
         "$($hash.Hash.ToLowerInvariant())  $($_.Name)"
     }
-Set-Content -LiteralPath (Join-Path $packageRoot 'SHA256SUMS.txt') `
-    -Value $checksums -Encoding ascii
+Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding ascii
 
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -Force -LiteralPath $archive
 }
-Compress-Archive -Path (Join-Path $packageRoot '*') `
+$archiveInputs = @($packageFiles.FullName) + $checksumPath
+Compress-Archive -LiteralPath $archiveInputs `
     -DestinationPath $archive -CompressionLevel Optimal
 
 $archiveHash = Get-FileHash -Algorithm SHA256 -LiteralPath $archive
