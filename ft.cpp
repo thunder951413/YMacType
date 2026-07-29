@@ -313,8 +313,10 @@ void CAlphaBlend::init()
 
 	tbl1[i] = BASE;
 
-	for (i = 0; i <= tbl2.size() - 1; ++i) {
-		tbl2[i] = rconv1(i * (BASE / (tbl2.size() - 1)));
+	for (size_t index = 0; index < tbl2.size(); ++index) {
+		tbl2[index] = rconv1(
+			static_cast<int>(
+				index * (BASE / (tbl2.size() - 1))));
 	}
 
 	const int* table = pSettings->GetTuneTable();
@@ -1333,7 +1335,9 @@ bool IsSFNTNameMatch(const FT_Face& face, FT_UInt nameID, wstring name) {
 			switch (fn.encoding_id) {
 			case 0:
 			case 1: {
-				return to_utf16le(wstring(reinterpret_cast<wchar_t*>(fn.string), fn.string_len));
+				return to_utf16le(wstring(
+					reinterpret_cast<wchar_t*>(fn.string),
+					fn.string_len / sizeof(wchar_t)));
 			}
 			default:
 				return to_wide_string(string(reinterpret_cast<char*>(fn.string), fn.string_len));
@@ -1881,7 +1885,13 @@ BOOL ForEachGetGlyphFT(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString,
 				glyph_index = wch;
 				*AAList = AAMode;
 				GetCharWidthI(FTInfo.hdc, wch, 1, (LPWORD)&wch, &gdi32x);	//index的文字必须计算宽度
-				if (FTInfo.font_type.height <= pSettings->BitmapHeight() && pfi->EmbeddedBmpExist(FTInfo.font_type.height))
+				if (pSettings->BitmapHeight() >= 0 &&
+					FTInfo.font_type.height <=
+						static_cast<FT_UInt>(
+							pSettings->BitmapHeight()) &&
+					pfi->EmbeddedBmpExist(
+						static_cast<int>(
+							FTInfo.font_type.height)))
 				{
 					f_glyph = false;	//使用点阵，不绘图
 					*drState = FT_DRAW_EMBEDDED_BITMAP;	//设置为点阵绘图方式
@@ -1927,7 +1937,10 @@ BOOL ForEachGetGlyphFT(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString,
 								case 13: {FTInfo.font_type.height = 15; FTInfo.font_type.width += 2; break; }
 								}
 							}
-							pfi = g_pFTEngine->FindFont((int)FTInfo.font_type.face_id);
+							pfi = g_pFTEngine->FindFont(
+								static_cast<int>(
+									reinterpret_cast<INT_PTR>(
+										FTInfo.font_type.face_id)));
 							if (pfi)
 							{
 								pfs = &pfi->GetFontSettings();
@@ -1981,7 +1994,13 @@ BOOL ForEachGetGlyphFT(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString,
 								bLightLcdMode = (AAMode == 4) || (AAMode == 5);
 								//更新完成
 							}
-							if (FTInfo.font_type.height <= pSettings->BitmapHeight() && pfi->EmbeddedBmpExist(FTInfo.font_type.height))
+							if (pSettings->BitmapHeight() >= 0 &&
+								FTInfo.font_type.height <=
+									static_cast<FT_UInt>(
+										pSettings->BitmapHeight()) &&
+								pfi->EmbeddedBmpExist(
+									static_cast<int>(
+										FTInfo.font_type.height)))
 							{
 								f_glyph = false;	//使用点阵，不绘图
 								*drState = FT_DRAW_EMBEDDED_BITMAP;	//设置为点阵绘图方式
@@ -2098,7 +2117,7 @@ BOOL ForEachGetGlyphFT(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString,
 					swap(FTInfo.font_type.height, FTInfo.font_type.width);	//交换无法旋转的文字宽高
 				FTInfo.font_type.flags &= ~FT_LOAD_VERTICAL_LAYOUT;
 				if (bLcdMode) {
-					if (FTInfo.font_type.flags & FT_LOAD_TARGET_LCD_V == FT_LOAD_TARGET_LCD_V) {
+					if ((FTInfo.font_type.flags & FT_LOAD_TARGET_LCD_V) == FT_LOAD_TARGET_LCD_V) {
 						FTInfo.font_type.flags &= ~FT_LOAD_TARGET_LCD_V;
 						FTInfo.font_type.flags |= FT_LOAD_TARGET_LCD;
 					}
@@ -2263,8 +2282,8 @@ gdiexit:
 	if (!bGlyphIndex && bWindowsLink)
 	{
 		for (int i = 0; i < LinkNum; i++)
-			delete lpfontlink[i];
-		delete lpfontlink;
+			delete[] lpfontlink[i];
+		delete[] lpfontlink;
 	}
 	return nRet;
 }
@@ -2517,7 +2536,7 @@ BOOL ForEachGetGlyphGGO(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString
 			if (bVertical && IsVerticalChar(wch)) {
 				FTInfo.font_type.flags |= FT_LOAD_VERTICAL_LAYOUT;
 				if (bLcdMode) {
-					if (FTInfo.font_type.flags & FT_LOAD_TARGET_LCD == FT_LOAD_TARGET_LCD) {
+					if ((FTInfo.font_type.flags & FT_LOAD_TARGET_LCD) == FT_LOAD_TARGET_LCD) {
 						FTInfo.font_type.flags &= ~FT_LOAD_TARGET_LCD;
 						FTInfo.font_type.flags |= FT_LOAD_TARGET_LCD_V;
 					}
@@ -2529,7 +2548,7 @@ BOOL ForEachGetGlyphGGO(FreeTypeDrawInfo& FTInfo, LPCTSTR lpString, int cbString
 					swap(FTInfo.font_type.height, FTInfo.font_type.width);	//交换无法旋转的文字宽高
 				FTInfo.font_type.flags &= ~FT_LOAD_VERTICAL_LAYOUT;
 				if (bLcdMode) {
-					if (FTInfo.font_type.flags & FT_LOAD_TARGET_LCD_V == FT_LOAD_TARGET_LCD_V) {
+					if ((FTInfo.font_type.flags & FT_LOAD_TARGET_LCD_V) == FT_LOAD_TARGET_LCD_V) {
 						FTInfo.font_type.flags &= ~FT_LOAD_TARGET_LCD_V;
 						FTInfo.font_type.flags |= FT_LOAD_TARGET_LCD;
 					}
@@ -3151,7 +3170,9 @@ FT_Error face_requester(
 	FT_Error ret = FT_Err_Ok;
 	FT_Face face;
 
-	FreeTypeFontInfo* pfi = g_pFTEngine->FindFont((int)face_id);
+	FreeTypeFontInfo* pfi = g_pFTEngine->FindFont(
+		static_cast<int>(
+			reinterpret_cast<INT_PTR>(face_id)));
 	Assert(pfi);
 	if (!pfi) {
 		return FT_Err_Invalid_Argument;

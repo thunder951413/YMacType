@@ -7,3 +7,10 @@ Rel*/
 x64/
 *.vcxproj.user
 *.DotSettings.user
+artifacts/
+build-*.log
+build-release-*.log
+*.obj
+tests/bin/
+tests/matrix-*/
+tests/*.txt

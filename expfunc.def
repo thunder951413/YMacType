@@ -5,6 +5,10 @@ EXPORTS
 ;	SafeUnload @3
 	CreateControlCenter @4
 	ReloadConfig @5
+	MacTypeInitialize @6
+	MacTypeShutdown @7
+	MacTypeGetStatus @8
+	MacTypeInitializeThread @9
 ;;	GdippInjectDLL
 ;	GdippInstallHook
 ;	GdippRemoveHook

@@ -31,7 +31,7 @@ public:
 	StringHashT(LPCTSTR psz)
 	{
 		this->StringHashT::StringHashT();
-		_tcsncpy(m_szBuffer, psz, BUFSIZE - 1);
+		_tcsncpy_s(m_szBuffer, BUFSIZE, psz, _TRUNCATE);
 		UpdateHash();
 	}
 

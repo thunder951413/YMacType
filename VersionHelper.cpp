@@ -75,9 +75,9 @@ wstring CVersionHelper::GetVersionInfo(HMODULE hLib, wstring csEntry)
 				int dwSize = SizeofResource(hLib, hVersion);
 				if (IsBadReadPtr(versionInfo, dwSize))
 					dwSize -= 4;
-				char    *pchVIcopy = new char[dwSize * 2 + 4];
+				char    *pchVIcopy = new char[dwSize];
 
-				memcpy(pchVIcopy, pchVI, (int)(dwSize * 2 + 4));
+				memcpy(pchVIcopy, pchVI, dwSize);
 
 				DWORD vLen, langD;
 				BOOL retVal;
@@ -100,7 +100,7 @@ wstring CVersionHelper::GetVersionInfo(HMODULE hLib, wstring csEntry)
 
 				if (VerQueryValue(pchVIcopy, fileEntry, &retbuf, (UINT *)&vLen))
 					csRet = (TCHAR*)retbuf;
-				delete pchVIcopy;
+				delete[] pchVIcopy;
 			}
 		}
 

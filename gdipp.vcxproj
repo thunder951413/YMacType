@@ -206,6 +206,14 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+    </ClCompile>
+    <Link>
+      <CETCompat>true</CETCompat>
+    </Link>
+  </ItemDefinitionGroup>
   <PropertyGroup>
     <_ProjectFileVersion>12.0.21005.1</_ProjectFileVersion>
   </PropertyGroup>
@@ -461,7 +469,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_EXE;EASYHOOK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
@@ -497,7 +505,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;USE_DETOURS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
@@ -535,7 +543,7 @@
       <PreprocessorDefinitions>STATIC_LIB;EASYHOOK;WIN32;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
@@ -573,7 +581,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
@@ -609,7 +617,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;INFINALITY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>false</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
@@ -644,7 +652,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;EASYHOOK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <PrecompiledHeader />
@@ -680,7 +688,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;USE_DETOURS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
@@ -717,7 +725,7 @@
       <PreprocessorDefinitions>STATIC_LIB;EASYHOOK;NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
@@ -754,7 +762,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;TRACE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
@@ -791,7 +799,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;GDIPP_EXPORTS;_GDIPP_DLL;INFINALITY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
@@ -818,6 +826,7 @@
     <ClCompile Include="cache.cpp" />
     <ClCompile Include="common.cpp" />
     <ClCompile Include="directwrite.cpp" />
+    <ClCompile Include="diagnostics.cpp" />
     <ClCompile Include="dll.cpp" />
     <ClCompile Include="dynCodeHelper.cpp" />
     <ClCompile Include="EventLogging.cpp" />
@@ -839,6 +848,7 @@
       <ExceptionHandling Condition="'$(Configuration)|$(Platform)'=='Release Infinality|Win32'">Sync</ExceptionHandling>
     </ClCompile>
     <ClCompile Include="ownedcs.cpp" />
+    <ClCompile Include="render_backend.cpp" />
     <ClCompile Include="settings.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -848,8 +858,10 @@
     <ClInclude Include="array.h" />
     <ClInclude Include="cache.h" />
     <ClInclude Include="common.h" />
+    <ClInclude Include="com_ptr.h" />
     <ClInclude Include="crc32.h" />
     <ClInclude Include="directwrite.h" />
+    <ClInclude Include="diagnostics.h" />
     <ClInclude Include="dll.h" />
     <ClInclude Include="dynCodeHelper.h" />
     <ClInclude Include="EventLogging.h" />
@@ -864,9 +876,11 @@
     <ClInclude Include="hooklist.h" />
     <ClInclude Include="ivs_otft.h" />
     <ClInclude Include="json.hpp" />
+    <ClInclude Include="lifecycle.h" />
     <ClInclude Include="override.h" />
     <ClInclude Include="ownedcs.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="render_backend.h" />
     <ClInclude Include="settings.h" />
     <ClInclude Include="stdint.h" />
     <ClInclude Include="strtoken.h" />

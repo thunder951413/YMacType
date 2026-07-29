@@ -165,7 +165,7 @@ public:
 	}
 	~ControlIder()
 	{
-		delete unicode;
+		delete[] unicode;
 	}
 	void setcntrlAttribute(WCHAR wch, int cnType)
 	{
@@ -342,8 +342,8 @@ struct FreeTypeDrawInfo
 	}
 	~FreeTypeDrawInfo()
 	{
-		delete Dx;
-		delete Dy;
+		delete[] Dx;
+		delete[] Dy;
 		delete[] AAModes;
 	}
 

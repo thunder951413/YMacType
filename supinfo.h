@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mmsystem.h>	//mmioFOURCC
+#include "diagnostics.h"
 #define FOURCC_GDIPP	mmioFOURCC('G', 'D', 'I', 'P')
 
 typedef struct {
@@ -12,7 +13,6 @@ typedef struct {
 //参照
 //http://www.catch22.net/tuts/undoc01.asp
 
-#ifdef _GDIPP_EXE
 template <typename _STARTUPINFO>
 void FillGdiPPStartupInfo(_STARTUPINFO& si, GDIPP_CREATE_MAGIC& gppcm)
 {
@@ -21,7 +21,6 @@ void FillGdiPPStartupInfo(_STARTUPINFO& si, GDIPP_CREATE_MAGIC& gppcm)
 	si.cbReserved2 = sizeof(GDIPP_CREATE_MAGIC);
 	si.lpReserved2 = (LPBYTE)&gppcm;
 }
-#endif
 
 #ifdef _GDIPP_DLL
 template <typename _STARTUPINFO>
@@ -40,6 +39,58 @@ bool IsGdiPPStartupInfo(const _STARTUPINFO& si)
 EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi);
 EXTERN_C LPWSTR WINAPI GdippEnvironment(DWORD& dwCreationFlags, LPVOID lpEnvironment);
 
+inline bool ShouldSkipMacTypeInjection(const wchar_t* value)
+{
+	if (!value)
+		return false;
+	const wchar_t* slash = wcsrchr(value, L'\\');
+	const wchar_t* alternateSlash = wcsrchr(value, L'/');
+	const wchar_t* name = slash && (!alternateSlash || slash > alternateSlash)
+		? slash + 1
+		: (alternateSlash ? alternateSlash + 1 : value);
+	if (*name == L'"')
+		++name;
+	const wchar_t* candidates[] = {
+		L"MacLoader64.exe", L"MacLoader.exe",
+		L"MSBuild.exe", L"cl.exe", L"link.exe", L"rc.exe",
+		L"mspdbsrv.exe", L"git.exe", L"taskkill.exe"
+	};
+	for (const wchar_t* candidate : candidates) {
+		const size_t length = wcslen(candidate);
+		if (_wcsnicmp(name, candidate, length) == 0 &&
+			(name[length] == L'\0' || name[length] == L'"' ||
+				name[length] == L' ' || name[length] == L'\t'))
+			return true;
+	}
+	return false;
+}
+
+inline bool ShouldSkipMacTypeInjection(const char* value)
+{
+	if (!value)
+		return false;
+	const char* slash = strrchr(value, '\\');
+	const char* alternateSlash = strrchr(value, '/');
+	const char* name = slash && (!alternateSlash || slash > alternateSlash)
+		? slash + 1
+		: (alternateSlash ? alternateSlash + 1 : value);
+	if (*name == '"')
+		++name;
+	const char* candidates[] = {
+		"MacLoader64.exe", "MacLoader.exe",
+		"MSBuild.exe", "cl.exe", "link.exe", "rc.exe",
+		"mspdbsrv.exe", "git.exe", "taskkill.exe"
+	};
+	for (const char* candidate : candidates) {
+		const size_t length = strlen(candidate);
+		if (_strnicmp(name, candidate, length) == 0 &&
+			(name[length] == '\0' || name[length] == '"' ||
+				name[length] == ' ' || name[length] == '\t'))
+			return true;
+	}
+	return false;
+}
+
 
 
 //子プロセスにも自動でgdi++適用
@@ -55,7 +106,9 @@ BOOL _CreateProcessAorW(const _TCHAR* lpApp, _TCHAR* lpCmd, LPSECURITY_ATTRIBUTE
 	const bool runGdi = pSettings->RunFromGdiExe();
 #endif
 	
-	if (!hookCP || (!lpApp && !lpCmd) || (dwFlags & (DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS | DETACHED_PROCESS))/* || !psi || psi->cb < sizeof(_STARTUPINFO)*/) {
+	if (!hookCP || (!lpApp && !lpCmd) ||
+		ShouldSkipMacTypeInjection(lpApp ? lpApp : lpCmd) ||
+		(dwFlags & (DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS | DETACHED_PROCESS))/* || !psi || psi->cb < sizeof(_STARTUPINFO)*/) {
 		return fn(lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi);
 	}
 
@@ -88,7 +141,21 @@ BOOL _CreateProcessAorW(const _TCHAR* lpApp, _TCHAR* lpCmd, LPSECURITY_ATTRIBUTE
 		return FALSE;
 	}
 
-	GdippInjectDLL(ppi);
+	const BOOL injected = GdippInjectDLL(ppi);
+	const DWORD injectionError =
+		injected ? ERROR_SUCCESS : GetLastError();
+	MacTypeSetLastDiagnostic(
+		injected
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		injectionError);
+	MacTypeLog(
+		injected ? MacTypeLogLevel::Info : MacTypeLogLevel::Warning,
+		injected
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		L"child injection pid=%lu ready=%d",
+		ppi->dwProcessId, injected);
 	if (!(dwFlags & CREATE_SUSPENDED)) {
 		ResumeThread(ppi->hThread);
 	}
@@ -108,7 +175,9 @@ BOOL _CreateProcessAsUserAorW(HANDLE hToken, const _TCHAR* lpApp, _TCHAR* lpCmd,
 	const bool runGdi = pSettings->RunFromGdiExe();
 #endif
 
-	if (!hookCP || (!lpApp && !lpCmd) || (dwFlags & (DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS))/* || !psi || psi->cb < sizeof(_STARTUPINFO)*/) {
+	if (!hookCP || (!lpApp && !lpCmd) ||
+		ShouldSkipMacTypeInjection(lpApp ? lpApp : lpCmd) ||
+		(dwFlags & (DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS))/* || !psi || psi->cb < sizeof(_STARTUPINFO)*/) {
 		return fn(hToken, lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi);
 	}
 
@@ -140,7 +209,21 @@ BOOL _CreateProcessAsUserAorW(HANDLE hToken, const _TCHAR* lpApp, _TCHAR* lpCmd,
 		return FALSE;
 	}
 
-	GdippInjectDLL(ppi);
+	const BOOL injected = GdippInjectDLL(ppi);
+	const DWORD injectionError =
+		injected ? ERROR_SUCCESS : GetLastError();
+	MacTypeSetLastDiagnostic(
+		injected
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		injectionError);
+	MacTypeLog(
+		injected ? MacTypeLogLevel::Info : MacTypeLogLevel::Warning,
+		injected
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		L"child-as-user injection pid=%lu ready=%d",
+		ppi->dwProcessId, injected);
 	if (!(dwFlags & CREATE_SUSPENDED)) {
 		ResumeThread(ppi->hThread);
 	}
@@ -174,8 +257,8 @@ static wstring GetExeName(LPCTSTR lpApp, LPTSTR lpCmd)
 			DWORD fa = GetFileAttributes(ret.c_str()); 
 			if (fa!=INVALID_FILE_ATTRIBUTES && fa!=FILE_ATTRIBUTE_DIRECTORY)	//文件是否存在
 			{		
-				int p = ret.find_last_of(_T("\\"));
-				if (p!=-1)
+				const size_t p = ret.find_last_of(_T("\\"));
+				if (p != wstring::npos)
 					ret.erase(0, p+1);	//如果有路径就删掉路径
 // 				WriteFile(logfile, ret.c_str(), ret.length()*2, &aa, NULL);
 // 				WriteFile(logfile, _T("\n"), 2, &aa, NULL);
@@ -189,8 +272,8 @@ static wstring GetExeName(LPCTSTR lpApp, LPTSTR lpCmd)
 				DWORD fa = GetFileAttributes(ret.c_str()); 
 				if (fa!=INVALID_FILE_ATTRIBUTES && fa!=FILE_ATTRIBUTE_DIRECTORY)
 				{		
-					int p = ret.find_last_of(_T("\\"));
-					if (p!=-1)
+					const size_t p = ret.find_last_of(_T("\\"));
+					if (p != wstring::npos)
 						ret.erase(0, p+1);	//如果有路径就删掉路径
 // 					WriteFile(logfile, ret.c_str(), ret.length()*2, &aa, NULL);
 // 					WriteFile(logfile, _T("\n"), 2, &aa, NULL);
@@ -207,7 +290,7 @@ static wstring GetExeName(LPCTSTR lpApp, LPTSTR lpCmd)
 // 		WriteFile(logfile, L"lpCmd=", 10, &aa, NULL);
 // 		WriteFile(logfile, lpCmd, _tcslen(lpCmd)*2, &aa, NULL);
 		ret.assign(lpCmd);
-		int p=0;
+		size_t p = wstring::npos;
 		if ((*lpCmd)==_T('\"'))
 		{
 			ret.erase(0,1);	//删除第一个引号
@@ -215,12 +298,12 @@ static wstring GetExeName(LPCTSTR lpApp, LPTSTR lpCmd)
 		}
 		else
 			p=ret.find_first_of(_T(" "));
-		if (p>0)
+		if (p != wstring::npos && p > 0)
 			ret.resize(p);	//获得Cmd里面的文件名
 // 		WriteFile(logfile, ret.c_str(), ret.length()*2, &aa, NULL);
 // 		WriteFile(logfile, _T("\n"), 2, &aa, NULL);
 		p = ret.find_last_of(_T("\\"));
-		if (p>0)
+		if (p != wstring::npos && p > 0)
 			ret.erase(0, p+1);	//如果有路径就删掉路径
 // 		WriteFile(logfile, ret.c_str(), ret.length()*2, &aa, NULL);
 // 		WriteFile(logfile, _T("\n"), 2, &aa, NULL);

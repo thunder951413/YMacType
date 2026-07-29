@@ -67,6 +67,49 @@ HOOK_DEFINE(BOOL, ExtTextOutW, (HDC hdc, int nXStart, int nYStart, UINT fuOption
 	(hdc, nXStart, nYStart, fuOptions, lprc, lpString, cbString, lpDx))
 
 HOOK_DEFINE(BOOL, RemoveFontResourceExW, (__in LPCWSTR name, __in DWORD fl, __reserved PVOID pdv), (name, fl, pdv))
+HOOK_DEFINE(HMODULE, LoadLibraryW, (
+	_In_ LPCWSTR lpLibFileName), (lpLibFileName))
+HOOK_DEFINE(HMODULE, LoadLibraryExW, (
+	_In_ LPCWSTR lpLibFileName,
+	_Reserved_ HANDLE hFile,
+	_In_ DWORD dwFlags), (lpLibFileName, hFile, dwFlags))
+HOOK_DEFINE(HMODULE, LoadLibraryA, (
+	_In_ LPCSTR lpLibFileName), (lpLibFileName))
+HOOK_DEFINE(HMODULE, LoadLibraryExA, (
+	_In_ LPCSTR lpLibFileName,
+	_Reserved_ HANDLE hFile,
+	_In_ DWORD dwFlags), (lpLibFileName, hFile, dwFlags))
+HOOK_DEFINE(HMODULE, LoadPackagedLibrary, (
+	_In_ LPCWSTR lpwLibFileName,
+	_Reserved_ DWORD reserved), (lpwLibFileName, reserved))
+HOOK_DEFINE(BOOL, CreateProcessW, (
+	_In_opt_ LPCWSTR lpApplicationName,
+	_Inout_opt_ LPWSTR lpCommandLine,
+	_In_opt_ LPSECURITY_ATTRIBUTES lpProcessAttributes,
+	_In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,
+	_In_ BOOL bInheritHandles,
+	_In_ DWORD dwCreationFlags,
+	_In_opt_ LPVOID lpEnvironment,
+	_In_opt_ LPCWSTR lpCurrentDirectory,
+	_In_ LPSTARTUPINFOW lpStartupInfo,
+	_Out_ LPPROCESS_INFORMATION lpProcessInformation),
+	(lpApplicationName, lpCommandLine, lpProcessAttributes,
+	lpThreadAttributes, bInheritHandles, dwCreationFlags, lpEnvironment,
+	lpCurrentDirectory, lpStartupInfo, lpProcessInformation))
+HOOK_DEFINE(BOOL, CreateProcessA, (
+	_In_opt_ LPCSTR lpApplicationName,
+	_Inout_opt_ LPSTR lpCommandLine,
+	_In_opt_ LPSECURITY_ATTRIBUTES lpProcessAttributes,
+	_In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,
+	_In_ BOOL bInheritHandles,
+	_In_ DWORD dwCreationFlags,
+	_In_opt_ LPVOID lpEnvironment,
+	_In_opt_ LPCSTR lpCurrentDirectory,
+	_In_ LPSTARTUPINFOA lpStartupInfo,
+	_Out_ LPPROCESS_INFORMATION lpProcessInformation),
+	(lpApplicationName, lpCommandLine, lpProcessAttributes,
+	lpThreadAttributes, bInheritHandles, dwCreationFlags, lpEnvironment,
+	lpCurrentDirectory, lpStartupInfo, lpProcessInformation))
 //HOOK_DEFINE(BOOL, RemoveFontResourceW, (__in LPCWSTR lpFileName))
 HOOK_DEFINE(HGDIOBJ, GetStockObject, (__in int i), (i))
 HOOK_DEFINE(BOOL, BeginPath, (HDC hdc), (hdc))
@@ -100,6 +143,11 @@ HOOK_MANUALLY(void, SetTextRenderingParams, (
 			   __in_opt IDWriteRenderingParams *textRenderingParams ))*/
 
 HOOK_MANUALLY(HRESULT, DWriteCreateFactory,  (
+			  __in DWRITE_FACTORY_TYPE factoryType,
+			  __in REFIID iid,
+			  __out IUnknown **factory), (factoryType, iid, factory))
+
+HOOK_MANUALLY(HRESULT, DWriteCoreCreateFactory,  (
 			  __in DWRITE_FACTORY_TYPE factoryType,
 			  __in REFIID iid,
 			  __out IUnknown **factory), (factoryType, iid, factory))
@@ -348,12 +396,6 @@ HOOK_MANUALLY(HRESULT, CreateDevice7, (
 	IDXGIDevice* dxgiDevice,
 	ID2D1Device6** d2dDevice6
 	), (This, dxgiDevice, d2dDevice6));
-
-HOOK_MANUALLY(BOOL, MySetProcessMitigationPolicy, (
-	_In_ PROCESS_MITIGATION_POLICY MitigationPolicy,
-	_In_ PVOID                     lpBuffer,
-	_In_ SIZE_T                    dwLength
-	), (MitigationPolicy, lpBuffer, dwLength));
 
 HOOK_MANUALLY(void, D2D1RenderTarget_DrawGlyphRun1, (
 	ID2D1DeviceContext *This,

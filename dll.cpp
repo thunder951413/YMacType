@@ -1,5 +1,13 @@
 #include "dll.h"
 
+#ifdef _WIN64
+// CMemLoadDll intentionally parses PE32 structures when a 64-bit process
+// inspects SysWOW64 exports. Narrow fields below are PE32 RVAs, not host
+// pointers. Keep the legacy parser isolated from the native-width code.
+#pragma warning(push)
+#pragma warning(disable: 4302 4311 4312)
+#endif
+
 CMemLoadDll::CMemLoadDll():m_bInitDllMain(true)
 {
  isLoadOk = FALSE;
@@ -38,11 +46,15 @@ BOOL CMemLoadDll::MemLoadLibrary(void* lpFileData, int DataLength, bool bInitDll
 
  // 分配虚拟内存
  void *pMemoryAddress = VirtualAlloc((LPVOID)0, ImageSize,
-     MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+     MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
  if(pMemoryAddress == NULL) return FALSE;
  else
  {
   CopyDllDatas(pMemoryAddress, lpFileData); //复制dll数据，并对齐每个段
+  //修正基地址 while the mapped headers are still writable.
+  pNTHeader->OptionalHeader.ImageBase =
+	  static_cast<DWORD>(
+		  reinterpret_cast<DWORD_PTR>(pMemoryAddress));
   //重定位信息
   /*if(pNTHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress >0
    && pNTHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size>0)
@@ -55,14 +67,21 @@ BOOL CMemLoadDll::MemLoadLibrary(void* lpFileData, int DataLength, bool bInitDll
    VirtualFree(pMemoryAddress,0,MEM_RELEASE);
    return FALSE;
   }*/
-  //修改页属性。应该根据每个页的属性单独设置其对应内存页的属性。这里简化一下。
-  //统一设置成一个属性PAGE_EXECUTE_READWRITE
-  unsigned long old;
-  VirtualProtect(pMemoryAddress, ImageSize, PAGE_EXECUTE_READWRITE,&old);
+  // This loader is used to inspect a PE32 export table. Keep the mapped
+  // image non-executable unless a legacy caller explicitly requests entry
+  // point execution, and never leave it writable and executable.
+  DWORD oldProtection = 0;
+  const DWORD finalProtection =
+	  bInitDllMain ? PAGE_EXECUTE_READ : PAGE_READONLY;
+  if (!VirtualProtect(
+	  pMemoryAddress, ImageSize, finalProtection, &oldProtection)) {
+	  VirtualFree(pMemoryAddress, 0, MEM_RELEASE);
+	  return FALSE;
+  }
+  if (bInitDllMain)
+	  FlushInstructionCache(
+		  GetCurrentProcess(), pMemoryAddress, ImageSize);
  }
- //修正基地址
- pNTHeader->OptionalHeader.ImageBase = (DWORD)pMemoryAddress;
-
  //接下来要调用一下dll的入口函数，做初始化工作。
  pDllMain = (ProcDllMain)(pNTHeader->OptionalHeader.AddressOfEntryPoint +(DWORD_PTR) pMemoryAddress);
  BOOL InitResult = !bInitDllMain || pDllMain((HINSTANCE)pMemoryAddress,DLL_PROCESS_ATTACH,0);
@@ -100,7 +119,7 @@ FARPROC  CMemLoadDll::MemGetProcAddress(LPCSTR lpProcName)
  LPWORD  pAddressOfOrdinals = (LPWORD)(pExport->AddressOfNameOrdinals + pImageBase);
  LPDWORD pAddressOfNames  = (LPDWORD)(pExport->AddressOfNames + pImageBase);
 
- int iOrdinal = -1;
+ DWORD iOrdinal = MAXDWORD;
 
  if(((DWORD)lpProcName & 0xFFFF0000) == 0) //IT IS A ORDINAL!
  {
@@ -108,9 +127,9 @@ FARPROC  CMemLoadDll::MemGetProcAddress(LPCSTR lpProcName)
  }
  else  //use name
  {
-  int iFound = -1;
+  DWORD iFound = MAXDWORD;
 
-  for(int i=0;i<iNumberOfNames;i++)
+  for(DWORD i=0;i<iNumberOfNames;i++)
   {
    char* pName= (char* )(pAddressOfNames[i] + pImageBase);
    if(strcmp(pName, lpProcName) == 0)
@@ -118,13 +137,13 @@ FARPROC  CMemLoadDll::MemGetProcAddress(LPCSTR lpProcName)
     iFound = i; break;
    }
   }
-  if(iFound >= 0)
+  if(iFound != MAXDWORD)
   {
    iOrdinal = (DWORD)(pAddressOfOrdinals[iFound]);
   }
  }
 
- if(iOrdinal < 0 || iOrdinal >= iNumberOfFunctions ) return NULL;
+ if(iOrdinal >= iNumberOfFunctions ) return NULL;
  else
  {
   DWORD pFunctionOffset = pAddressOfFunctions[iOrdinal];
@@ -348,6 +367,10 @@ void CMemLoadDll::CopyDllDatas(void* pDest, void* pSrc)
 
 
 
+#ifdef _WIN64
+#pragma warning(pop)
+#endif
+
 // =========== Dll helper to treat dlls our own way ================
 /*
 * StringLengthA
@@ -443,7 +466,7 @@ void* CDllHelper::MyGetProcAddress(HMODULE dllBase, wchar_t* procName) {
 	unsigned int* NameRVA = (unsigned int*)(dllBaseAddr + pExportDir->AddressOfNames);
 
 	//Iterate over AddressOfNames
-	for (int i = 0; i < pExportDir->NumberOfNames; i++) {
+	for (DWORD i = 0; i < pExportDir->NumberOfNames; i++) {
 		//Calculate Absolute Address and cast
 		char* name = (char*)(dllBaseAddr + NameRVA[i]);
 		wchar_t* wname = CharToWChar_T(name);

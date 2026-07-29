@@ -1,23 +1,72 @@
 #include "directwrite.h"
+#include "com_ptr.h"
 #include "settings.h"
 #include "dynCodeHelper.h"
+#include "diagnostics.h"
+#include <map>
+#include <set>
+#include <string>
 
 void MyDebug(const TCHAR * sz, ...)
 {
-#ifdef DEBUG
 	TCHAR szData[512] = { 0 };
 
 	va_list args;
 	va_start(args, sz);
-	StringCchVPrintf(szData, sizeof(szData)-1, sz, args);
+	StringCchVPrintf(
+		szData, _countof(szData), sz, args);
 	va_end(args);
 
 	OutputDebugString(szData);
-#endif
+	MacTypeLog(
+		MacTypeLogLevel::Debug,
+		MacTypeDiagnosticCode::BackendObserved,
+		L"%s", szData);
 }
 
 #define SET_VAL(x, y) *(DWORD_PTR*)&(x) = *(DWORD_PTR*)&(y)
 // To hook a method, add HOOK_MANUALLY() in hooklist.h and use this.
+
+namespace
+{
+SRWLOCK g_observedMethodLock = SRWLOCK_INIT;
+std::map<std::wstring, std::set<void*>> g_observedMethods;
+
+void ObserveComMethod(const wchar_t* name, void* method)
+{
+	if (!name || !method)
+		return;
+	AcquireSRWLockExclusive(&g_observedMethodLock);
+	std::set<void*>& methods = g_observedMethods[name];
+	const bool added = methods.insert(method).second;
+	const size_t implementationCount = methods.size();
+	ReleaseSRWLockExclusive(&g_observedMethodLock);
+	if (added) {
+		MacTypeLog(
+			implementationCount == 1
+				? MacTypeLogLevel::Info
+				: MacTypeLogLevel::Warning,
+			implementationCount == 1
+				? MacTypeDiagnosticCode::BackendObserved
+				: MacTypeDiagnosticCode::BackendHookFailed,
+			L"COM method observed name=%s address=%p implementations=%zu",
+			name, method, implementationCount);
+	}
+}
+}
+
+DWORD GetObservedComMethodImplementationCount()
+{
+	DWORD count = 0;
+	AcquireSRWLockShared(&g_observedMethodLock);
+	for (const auto& entry : g_observedMethods)
+		count += static_cast<DWORD>(entry.second.size());
+	ReleaseSRWLockShared(&g_observedMethodLock);
+	return count;
+}
+
+#define MTYPE_WIDEN2(value) L##value
+#define MTYPE_WIDEN(value) MTYPE_WIDEN2(value)
 
 #ifdef EASYHOOK
 #define ISHOOKED(name) (!!HOOK_##name.Link)
@@ -26,15 +75,18 @@ void MyDebug(const TCHAR * sz, ...)
 #endif
 
 #define HOOK(obj, name, index) { \
+	void* observedMethod = (*reinterpret_cast<void***>(obj.p))[index]; \
+	ObserveComMethod(MTYPE_WIDEN(#name), observedMethod); \
 	if (!ISHOOKED(name)) {  \
 		AutoEnableDynamicCodeGen dynHelper(true);  \
-		SET_VAL(ORIG_##name, (*reinterpret_cast<void***>(obj.p))[index]);  \
+		SET_VAL(ORIG_##name, observedMethod);  \
 		hook_demand_##name(false);  \
 		if (!ISHOOKED(name)) { MyDebug(L"##name hook failed"); }  \
 	}  \
 };
 
 struct ComMethodHooker {
+	const wchar_t* methodName;
 	// The target function if it has been hooked
 	BOOL (*lpIsHooked)();
 	// The method the vftable refers to
@@ -44,6 +96,7 @@ struct ComMethodHooker {
 };
 
 #define COM_METHOD_HOOKER(type, name, index) ComMethodHooker { \
+	MTYPE_WIDEN(#name), \
 	[]() -> BOOL { \
 		return ISHOOKED(name); \
 	}, \
@@ -57,6 +110,7 @@ struct ComMethodHooker {
 }
 
 #define COM_METHOD_HOOKER_EMPTY() ComMethodHooker { \
+	nullptr, \
 	[]() -> BOOL { \
 		return false; \
 	}, \
@@ -285,7 +339,7 @@ IDWriteRenderingParams* GetDWRenderingParams(IDWriteRenderingParams* default) {
 // that supports the latest available one. Older versions are just upcasts,
 // they share the same vftable.
 void HookFactory(ID2D1Factory* pD2D1Factory) {
-	static bool loaded = [&] {
+	{
 		HRESULT hr;
 		CComPtr<ID2D1Factory> ptr = pD2D1Factory;
 		// index is the index in the vftable. Their order is the same as
@@ -344,12 +398,11 @@ void HookFactory(ID2D1Factory* pD2D1Factory) {
 			HOOK(ptr7, CreateDevice7, 32);
 			MyDebug(L"ID2D1Factory7 hooked");
 		}
-		return true;
-	}();
+	}
 }
 
 void HookDevice(ID2D1Device* d2dDevice){
-	static bool loaded = [&] {
+	{
 		CComPtr<ID2D1Device> ptr = d2dDevice;
 		HOOK(ptr, CreateDeviceContext, 4);
 		MyDebug(L"ID2D1Device hooked");
@@ -390,8 +443,7 @@ void HookDevice(ID2D1Device* d2dDevice){
 			HOOK(ptr7, CreateDeviceContext7, 20);
 			MyDebug(L"ID2D1Device6 hooked");
 		}
-		return true;
-	}();
+	}
 }
 
 // Hook the method if it has not been hooked. It's not thread safe.
@@ -401,6 +453,7 @@ void HookRenderTargetMethod(
 	ComMethodHooker methodHookers[]
 	) {
 	void* method = methodHookers[hookCategory].lpGetMethod(pD2D1RenderTarget);
+	ObserveComMethod(methodHookers[hookCategory].methodName, method);
 	if (!method || methodHookers[hookCategory].lpIsHooked()) return;	// fn is not available or already hooked
 
 	methodHookers[hookCategory].lpHookFunc(pD2D1RenderTarget);
@@ -411,15 +464,17 @@ void HookRenderTarget(
 	D2D1RenderTargetCategory hookCategory
 	){
 	MyDebug(L"HookRenderTarget %d", hookCategory);
-	static bool loaded = [&] {
+	{
 		CComPtr<ID2D1RenderTarget> ptr = pD2D1RenderTarget;
 		HOOK(ptr, CreateCompatibleRenderTarget, 12);
 		HOOK(ptr, D2D1RenderTarget_DrawTextLayout, 28);
 
 		ID2D1Factory* pD2D1Factory;
 		pD2D1RenderTarget->GetFactory(&pD2D1Factory);
-		if (pD2D1Factory)
+		if (pD2D1Factory) {
 			HookFactory(pD2D1Factory);
+			pD2D1Factory->Release();
+		}
 
 		// Actually it always implements ID2D1DeviceContext regardless of
 		// hookCategory.
@@ -428,11 +483,12 @@ void HookRenderTarget(
 		if (SUCCEEDED(hr)) {
 			ID2D1Device* pD2D1Device;
 			ptr1->GetDevice(&pD2D1Device);
-			if (pD2D1Device)
+			if (pD2D1Device) {
 				HookDevice(pD2D1Device);
+				pD2D1Device->Release();
+			}
 		}
-		return true;
-	}();
+	}
 
 	// Some methods are duplicated across interfaces. Hook them whenever they're
 	// available from an instance. Make sure don't hook the same function
@@ -479,9 +535,9 @@ void HookRenderTarget(
 		COM_METHOD_HOOKER(ID2D1DeviceContext, D2D1DeviceContext_DrawGlyphRun1, 82)
 	};
 
-	if (hookCategory == D2D1_RENDER_TARGET_CATEGORY) {
-		static bool loaded1 = [&] {			
-			CCriticalSectionLock __lock(CCriticalSectionLock::CS_DWRITE);
+	{
+		CCriticalSectionLock __lock(CCriticalSectionLock::CS_DWRITE);
+		if (hookCategory == D2D1_RENDER_TARGET_CATEGORY) {
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawText);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawGlyphRun);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookSetTextAntialiasMode);
@@ -492,11 +548,8 @@ void HookRenderTarget(
 			if (SUCCEEDED(hr)) {
 				HookRenderTargetMethod(ptr, hookCategory, hookDrawGlyphRun1);
 			}
-			return true;
-		}();
-	} else if (hookCategory == D2D1_RENDER_TARGET1_CATEGORY) {
-		static bool loaded2 = [&] {
-			CCriticalSectionLock __lock(CCriticalSectionLock::CS_DWRITE);
+		}
+		else if (hookCategory == D2D1_RENDER_TARGET1_CATEGORY) {
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawText);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawGlyphRun);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookSetTextAntialiasMode);
@@ -507,18 +560,14 @@ void HookRenderTarget(
 			if (SUCCEEDED(hr)) {
 				HookRenderTargetMethod(ptr, hookCategory, hookDrawGlyphRun1);
 			}
-			return true;
-		}();
-	} else if (hookCategory == D2D1_DEVICE_CONTEXT_CATEGORY) {
-		static bool loaded3 = [&] {
-			CCriticalSectionLock __lock(CCriticalSectionLock::CS_DWRITE);
+		}
+		else if (hookCategory == D2D1_DEVICE_CONTEXT_CATEGORY) {
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawText);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawGlyphRun);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookSetTextAntialiasMode);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookSetTextRenderingParams);
 			HookRenderTargetMethod(pD2D1RenderTarget, hookCategory, hookDrawGlyphRun1);
-			return true;
-		}();
+		}
 	}
 
 	//pD2D1RenderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
@@ -1374,32 +1423,29 @@ bool hookDirectWrite(IUnknown ** factory)	//此函数需要改进以判断是否
 #ifdef DEBUG
 	//MessageBox(NULL, L"HookDW", NULL, MB_OK);
 #endif
-	static bool loaded = [&] {
-		CComPtr<IDWriteFactory> pDWriteFactory;
-		HRESULT hr1 = (*factory)->QueryInterface(&pDWriteFactory);
-		if (FAILED(hr1)) FAILEXIT;
-		HOOK(pDWriteFactory, CreateGlyphRunAnalysis, 23);
-		HOOK(pDWriteFactory, GetGdiInterop, 17);
-		const CGdippSettings* pSettings = CGdippSettings::GetInstance();
-		// Windows8/8.1 is too buggy, GDIinterpo doesn't work correctly
-		if (!pSettings->IsWindows81() && !pSettings->IsWindows8() && pSettings->DelayedInited() && pSettings->GetFontSubstitutesInfo().GetSize())
-			hookFontCreation(pDWriteFactory);
-		MyDebug(L"DW1 hooked");
+	CComPtr<IDWriteFactory> pDWriteFactory;
+	HRESULT hr1 = (*factory)->QueryInterface(&pDWriteFactory);
+	if (FAILED(hr1)) FAILEXIT;
+	HOOK(pDWriteFactory, CreateGlyphRunAnalysis, 23);
+	HOOK(pDWriteFactory, GetGdiInterop, 17);
+	const CGdippSettings* pSettings = CGdippSettings::GetInstance();
+	// Windows8/8.1 is too buggy, GDIinterpo doesn't work correctly
+	if (!pSettings->IsWindows81() && !pSettings->IsWindows8() && pSettings->DelayedInited() && pSettings->GetFontSubstitutesInfo().GetSize())
+		hookFontCreation(pDWriteFactory);
+	MyDebug(L"DW1 hooked");
 
-		CComPtr<IDWriteFactory2> pDWriteFactory2;
-		HRESULT hr2 = (*factory)->QueryInterface(&pDWriteFactory2);
-		if (FAILED(hr2)) FAILEXIT;
-		HOOK(pDWriteFactory2, CreateGlyphRunAnalysis2, 30);
-		MyDebug(L"DW2 hooked");
+	CComPtr<IDWriteFactory2> pDWriteFactory2;
+	HRESULT hr2 = (*factory)->QueryInterface(&pDWriteFactory2);
+	if (FAILED(hr2)) return true;
+	HOOK(pDWriteFactory2, CreateGlyphRunAnalysis2, 30);
+	MyDebug(L"DW2 hooked");
 
-		CComPtr<IDWriteFactory3> pDWriteFactory3;
-		HRESULT hr3 = (*factory)->QueryInterface(&pDWriteFactory3);
-		if (FAILED(hr3)) FAILEXIT;
-		HOOK(pDWriteFactory3, CreateGlyphRunAnalysis3, 31);
-		MyDebug(L"DW3 hooked");
-		return true;
-	}();
-	return loaded;
+	CComPtr<IDWriteFactory3> pDWriteFactory3;
+	HRESULT hr3 = (*factory)->QueryInterface(&pDWriteFactory3);
+	if (FAILED(hr3)) return true;
+	HOOK(pDWriteFactory3, CreateGlyphRunAnalysis3, 31);
+	MyDebug(L"DW3 hooked");
+	return true;
 }
 
 #undef FAILEXIT
@@ -1479,8 +1525,38 @@ void TriggerHook(ID2D1Factory* d2d_factory) {
 // 			CreateGlyphRunAnalysis<N>
 // 				IDWriteGlyphRunAnalysis
 // 					GetAlphaBlendParams
-void HookD2DDll()
+namespace
 {
+volatile LONG g_renderModuleHooking = FALSE;
+
+class RenderModuleHookGuard
+{
+public:
+	RenderModuleHookGuard()
+		: acquired(InterlockedCompareExchange(
+			&g_renderModuleHooking, TRUE, FALSE) == FALSE)
+	{
+	}
+
+	~RenderModuleHookGuard()
+	{
+		if (acquired)
+			InterlockedExchange(&g_renderModuleHooking, FALSE);
+	}
+
+	explicit operator bool() const { return acquired; }
+
+private:
+	bool acquired;
+};
+}
+
+void HookLoadedRenderingModules()
+{
+	RenderModuleHookGuard guard;
+	if (!guard)
+		return;
+
 	typedef HRESULT (WINAPI *PFN_DWriteCreateFactory)(
 		_In_ DWRITE_FACTORY_TYPE factoryType,
 		_In_ REFIID iid,
@@ -1499,31 +1575,64 @@ void HookD2DDll()
 #endif
 	HMODULE d2d1 = GetModuleHandle(_T("d2d1.dll"));
 	HMODULE dw = GetModuleHandle(_T("dwrite.dll"));
+	HMODULE dwCore = GetModuleHandle(_T("DWriteCore.dll"));
 
-	if (!d2d1)
-		d2d1 = LoadLibrary(_T("d2d1.dll"));
-	if (!dw)
-		dw = LoadLibrary(_T("dwrite.dll"));
-	void* D2D1Factory = GetProcAddress(d2d1, "D2D1CreateFactory");
-	void* D2D1Device = GetProcAddress(d2d1, "D2D1CreateDevice");
-	void* D2D1Context = GetProcAddress(d2d1, "D2D1CreateDeviceContext");
-	void* DWFactory = GetProcAddress(dw, "DWriteCreateFactory");
-	*(DWORD_PTR*)&ORIG_D2D1CreateFactory = (DWORD_PTR)D2D1Factory;
-	*(DWORD_PTR*)&ORIG_D2D1CreateDevice = (DWORD_PTR)D2D1Device;
-	*(DWORD_PTR*)&ORIG_D2D1CreateDeviceContext = (DWORD_PTR)D2D1Context;
-	*(DWORD_PTR*)&ORIG_DWriteCreateFactory = (DWORD_PTR)DWFactory;
-	if (DWFactory) {
+	void* D2D1Factory = d2d1 ? GetProcAddress(d2d1, "D2D1CreateFactory") : nullptr;
+	void* D2D1Device = d2d1 ? GetProcAddress(d2d1, "D2D1CreateDevice") : nullptr;
+	void* D2D1Context = d2d1 ? GetProcAddress(d2d1, "D2D1CreateDeviceContext") : nullptr;
+	void* DWFactory = dw ? GetProcAddress(dw, "DWriteCreateFactory") : nullptr;
+	void* DWCoreFactory = dwCore
+		? GetProcAddress(dwCore, "DWriteCoreCreateFactory")
+		: nullptr;
+	if (DWFactory && !ISHOOKED(DWriteCreateFactory)) {
+		*(DWORD_PTR*)&ORIG_DWriteCreateFactory = (DWORD_PTR)DWFactory;
 		hook_demand_DWriteCreateFactory();
+		MacTypeLog(
+			ISHOOKED(DWriteCreateFactory)
+				? MacTypeLogLevel::Info
+				: MacTypeLogLevel::Error,
+			ISHOOKED(DWriteCreateFactory)
+				? MacTypeDiagnosticCode::BackendObserved
+				: MacTypeDiagnosticCode::BackendHookFailed,
+			L"system DirectWrite factory target=%p hooked=%d",
+			DWFactory, ISHOOKED(DWriteCreateFactory));
 	}
-	if (D2D1Factory){
+	if (DWCoreFactory && !ISHOOKED(DWriteCoreCreateFactory)) {
+		*(DWORD_PTR*)&ORIG_DWriteCoreCreateFactory = (DWORD_PTR)DWCoreFactory;
+		hook_demand_DWriteCoreCreateFactory();
+		MacTypeLog(
+			ISHOOKED(DWriteCoreCreateFactory)
+				? MacTypeLogLevel::Info
+				: MacTypeLogLevel::Error,
+			ISHOOKED(DWriteCoreCreateFactory)
+				? MacTypeDiagnosticCode::BackendObserved
+				: MacTypeDiagnosticCode::BackendHookFailed,
+			L"DWriteCore factory target=%p hooked=%d",
+			DWCoreFactory, ISHOOKED(DWriteCoreCreateFactory));
+	}
+	if (D2D1Factory && !ISHOOKED(D2D1CreateFactory)){
+		*(DWORD_PTR*)&ORIG_D2D1CreateFactory = (DWORD_PTR)D2D1Factory;
 		hook_demand_D2D1CreateFactory();
 	}
-	if (D2D1Device) {
+	if (D2D1Device && !ISHOOKED(D2D1CreateDevice)) {
+		*(DWORD_PTR*)&ORIG_D2D1CreateDevice = (DWORD_PTR)D2D1Device;
 		hook_demand_D2D1CreateDevice();
 	}
-	if (D2D1Context) {
+	if (D2D1Context && !ISHOOKED(D2D1CreateDeviceContext)) {
+		*(DWORD_PTR*)&ORIG_D2D1CreateDeviceContext = (DWORD_PTR)D2D1Context;
 		hook_demand_D2D1CreateDeviceContext();
 	}
+}
+
+void HookD2DDll()
+{
+	// Compatibility path for the system rendering DLLs. DWriteCore is owned
+	// by the application and is never loaded as a side effect.
+	if (!GetModuleHandleW(L"d2d1.dll"))
+		LoadLibraryW(L"d2d1.dll");
+	if (!GetModuleHandleW(L"dwrite.dll"))
+		LoadLibraryW(L"dwrite.dll");
+	HookLoadedRenderingModules();
 }
 
 /*
@@ -1588,6 +1697,64 @@ HRESULT WINAPI IMPL_DWriteCreateFactory(__in DWRITE_FACTORY_TYPE factoryType,
 	if (SUCCEEDED(ret))
 		hookDirectWrite(factory);
 	return ret;
+}
+
+HRESULT WINAPI IMPL_DWriteCoreCreateFactory(__in DWRITE_FACTORY_TYPE factoryType,
+	__in REFIID iid,
+	__out IUnknown **factory)
+{
+	HRESULT ret = ORIG_DWriteCoreCreateFactory(factoryType, iid, factory);
+	if (SUCCEEDED(ret))
+		hookDirectWrite(factory);
+	return ret;
+}
+
+HMODULE WINAPI IMPL_LoadLibraryW(_In_ LPCWSTR lpLibFileName)
+{
+	HMODULE module = ORIG_LoadLibraryW(lpLibFileName);
+	if (module)
+		HookLoadedRenderingModules();
+	return module;
+}
+
+HMODULE WINAPI IMPL_LoadLibraryExW(
+	_In_ LPCWSTR lpLibFileName,
+	_Reserved_ HANDLE hFile,
+	_In_ DWORD dwFlags)
+{
+	HMODULE module = ORIG_LoadLibraryExW(lpLibFileName, hFile, dwFlags);
+	if (module)
+		HookLoadedRenderingModules();
+	return module;
+}
+
+HMODULE WINAPI IMPL_LoadLibraryA(_In_ LPCSTR lpLibFileName)
+{
+	HMODULE module = ORIG_LoadLibraryA(lpLibFileName);
+	if (module)
+		HookLoadedRenderingModules();
+	return module;
+}
+
+HMODULE WINAPI IMPL_LoadLibraryExA(
+	_In_ LPCSTR lpLibFileName,
+	_Reserved_ HANDLE hFile,
+	_In_ DWORD dwFlags)
+{
+	HMODULE module = ORIG_LoadLibraryExA(lpLibFileName, hFile, dwFlags);
+	if (module)
+		HookLoadedRenderingModules();
+	return module;
+}
+
+HMODULE WINAPI IMPL_LoadPackagedLibrary(
+	_In_ LPCWSTR lpwLibFileName,
+	_Reserved_ DWORD reserved)
+{
+	HMODULE module = ORIG_LoadPackagedLibrary(lpwLibFileName, reserved);
+	if (module)
+		HookLoadedRenderingModules();
+	return module;
 }
 
 HRESULT WINAPI IMPL_CreateFontFace(IDWriteFont* self,

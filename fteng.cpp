@@ -121,12 +121,13 @@ struct DeleteCharFunc : public std::unary_function<FreeTypeCharData*&, void>
 };
 
 template <class T>
-void CompactMap(T& pp, int count, int reduce)
+void CompactMap(T& pp, size_t reduce)
 {
 	CCriticalSectionLock __lock(CCriticalSectionLock::CS_FONTCACHE);
-	int reducecount = pp.size() - reduce;
+	const size_t reducecount =
+		pp.size() > reduce ? pp.size() - reduce : 0;
 	T::iterator it= pp.begin();
-	for (int i=0;i<reducecount;i++) //删除超过FREETYPE_GC_COUNTER之后的缓存
+	for (size_t i=0;i<reducecount;i++) //删除超过FREETYPE_GC_COUNTER之后的缓存
 	{
 		//it->second->Erase();
 		delete it->second;
@@ -258,7 +259,7 @@ void FreeTypeFontCache::Compact()
 #ifdef _USE_ARRAY
 	::Compact(m_glyphs, countof(m_glyphs), FREETYPE_GC_COUNTER);
 #else
-	::CompactMap(m_GlyphCache, m_GlyphCache.size(), FREETYPE_GC_COUNTER);
+	::CompactMap(m_GlyphCache, FREETYPE_GC_COUNTER);
 #endif
 	//GlyphCache::const_iterator it=m_GlyphCache.begin();
 }
@@ -374,7 +375,8 @@ void FreeTypeFontInfo::Compact()
 {
 	//TRACE(_T("FreeTypeFontInfo::Compact: %d > %d\n"), m_cache.GetSize(), m_nMaxSizes);
 	ResetGCCounter();
-	::CompactMap(m_cache, m_cache.size(), m_nMaxSizes);
+	::CompactMap(
+		m_cache, static_cast<size_t>(m_nMaxSizes));
 	CacheArray::const_iterator it=m_cache.begin();
 	for (;it!=m_cache.end();++it)
 		it->second->Deactive();
@@ -383,9 +385,10 @@ void FreeTypeFontInfo::Compact()
 void FreeTypeFontInfo::Createlink()
 {
 	CFontFaceNamesEnumerator fn(m_hash.c_str(), m_nFontFamily);
-	std::set<int> linkset;	//链接字体集合，防止重复链接，降低效率
+	std::set<INT_PTR> linkset;	//链接字体集合，防止重复链接，降低效率
 	linkset.insert(m_id);
-	face_id_link[m_linknum] = (FTC_FaceID)m_id;
+	face_id_link[m_linknum] =
+		reinterpret_cast<FTC_FaceID>(m_id);
 	ggo_link[m_linknum++] = m_ggoFont;	//第一个链接一定是自己，不需要获取
 	LOGFONT lf;
 	BOOL IsSimSun = false;
@@ -404,10 +407,13 @@ void FreeTypeFontInfo::Createlink()
 		FreeTypeFontInfo* pfitemp = g_pFTEngine->FindFont(lf.lfFaceName, /*m_weight*/0, /*m_italic*/false);
 		if (pfitemp && linkset.find(pfitemp->GetId())==linkset.end()) {
 			linkset.insert(pfitemp->GetId());
-			face_id_link[m_linknum] = (FTC_FaceID)pfitemp->GetId();
+			face_id_link[m_linknum] =
+				reinterpret_cast<FTC_FaceID>(
+					pfitemp->GetId());
 			ggo_link[m_linknum++] = pfitemp->GetGGOFont();
 		if (!m_SimSunID && IsSimSun)
-			m_SimSunID = (FTC_FaceID)pfitemp->GetId();
+			m_SimSunID = reinterpret_cast<FTC_FaceID>(
+				pfitemp->GetId());
 		}
 	}
 }
@@ -419,7 +425,11 @@ bool FreeTypeFontInfo::EmbeddedBmpExist(int px)
 	if (m_ebmps[px]!=-1)
 		return !!m_ebmps[px];
 	CCriticalSectionLock __lock(CCriticalSectionLock::CS_MANAGER);
-	FTC_ImageTypeRec imgtype={(FTC_FaceID)m_id, px, px, FT_LOAD_DEFAULT};	//构造一个当前大小的imagetype
+	FTC_ImageTypeRec imgtype={
+		reinterpret_cast<FTC_FaceID>(m_id),
+		static_cast<FT_UInt>(px),
+		static_cast<FT_UInt>(px),
+		FT_LOAD_DEFAULT};	//构造一个当前大小的imagetype
 	FT_Glyph temp_glyph=NULL;
 	FT_UInt gindex = FTC_CMapCache_Lookup(cmap_cache, (FTC_FaceID)m_id, -1, FT_UInt32(L'0'));	//获得0的索引值
 	FTC_ImageCache_Lookup(image_cache, &imgtype, gindex, &temp_glyph, NULL);
@@ -565,7 +575,9 @@ BOOL FreeTypeFontEngine::RemoveFont(LPCWSTR FontName)
 				RemoveThisFont(result, fontarray);
 			CCriticalSectionLock __lock(CCriticalSectionLock::CS_FONTENG);
 			FTC_Manager_RemoveFaceID(cache_man, fid);
-			m_mfontList[(int)fid-1]=NULL;
+			m_mfontList[
+				static_cast<int>(
+					reinterpret_cast<INT_PTR>(fid)) - 1] = NULL;
 		}
 		fontarray++;
 	}
@@ -733,7 +745,7 @@ FreeTypeFontInfo* FreeTypeFontEngine::AddFont(LPCTSTR lpFaceName, int weight, bo
 int FreeTypeFontEngine::GetFontIdByName(LPCTSTR lpFaceName, int weight, bool italic)
 {
 	const FreeTypeFontInfo* pfi = FindFont(lpFaceName, weight, italic);
-	return pfi ? pfi->GetId() : 0;
+	return pfi ? static_cast<int>(pfi->GetId()) : 0;
 }
 
 /*
@@ -808,7 +820,8 @@ FreeTypeFontInfo* FreeTypeFontEngine::FindFont(LPCTSTR lpFaceName, int weight, b
 FreeTypeFontInfo* FreeTypeFontEngine::FindFont(int faceid)
 {
 	CCriticalSectionLock __lock(CCriticalSectionLock::CS_FONTMAP);
-	if (faceid>m_mfontList.size())
+	if (faceid <= 0 ||
+		static_cast<size_t>(faceid) > m_mfontList.size())
 		return NULL;
 	else
 		return m_mfontList[faceid-1];	//存在bug！！！

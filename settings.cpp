@@ -377,10 +377,12 @@ float CGdippSettings::FastGetProfileFloat(LPCTSTR lpszSection, LPCTSTR lpszKey, 
 {
 	wstring names = wstring((LPTSTR)lpszSection) + _T("@") + wstring((LPTSTR)m_szexeName);
 	if (m_Config.IsPartExists(names.c_str()) && m_Config[names.c_str()].IsValueExists(lpszKey))
-		return m_Config[names.c_str()][lpszKey].ToDouble();
+		return static_cast<float>(
+			m_Config[names.c_str()][lpszKey].ToDouble());
 	else
 	if (m_Config[lpszSection].IsValueExists(lpszKey))
-		return m_Config[lpszSection][lpszKey].ToDouble();
+		return static_cast<float>(
+			m_Config[lpszSection][lpszKey].ToDouble());
 	else
 		return fDefault;
 }
@@ -401,17 +403,21 @@ float CGdippSettings::_GetFreeTypeProfileFloat(LPCTSTR lpszKey, float fDefault, 
 {
 	wstring names = wstring((LPTSTR)c_szFreeType) + _T("@") + wstring((LPTSTR)m_szexeName);
 	if (m_Config.IsPartExists(names.c_str()) && m_Config[names.c_str()].IsValueExists(lpszKey))
-		return m_Config[names.c_str()][lpszKey].ToInt();
+		return static_cast<float>(
+			m_Config[names.c_str()][lpszKey].ToDouble());
 	else
 	{
 		names = wstring((LPTSTR)c_szGeneral) + _T("@") + wstring((LPTSTR)m_szexeName);
 		if (m_Config.IsPartExists(names.c_str()) && m_Config[names.c_str()].IsValueExists(lpszKey))
-			return m_Config[names.c_str()][lpszKey].ToDouble();
+			return static_cast<float>(
+				m_Config[names.c_str()][lpszKey].ToDouble());
 		else
 		if (m_Config[c_szFreeType].IsValueExists(lpszKey))
-			return m_Config[c_szFreeType][lpszKey].ToDouble();
+			return static_cast<float>(
+				m_Config[c_szFreeType][lpszKey].ToDouble());
 		if (m_Config[c_szGeneral].IsValueExists(lpszKey))
-			return m_Config[c_szGeneral][lpszKey].ToDouble();
+			return static_cast<float>(
+				m_Config[c_szGeneral][lpszKey].ToDouble());
 		else
 			return fDefault;
 	}
@@ -430,20 +436,20 @@ DWORD CGdippSettings::FastGetProfileString(LPCTSTR lpszSection, LPCTSTR lpszKey,
 	{
 		LPCTSTR p = m_Config[names.c_str()][lpszKey];
 		StringCchCopy(lpszRet, cch, p);
-		return wcslen(p);
+		return static_cast<DWORD>(wcslen(p));
 	}
 	else
 	if (m_Config[lpszSection].IsValueExists(lpszKey))
 	{
 		LPCTSTR p = m_Config[lpszSection][lpszKey];
 		StringCchCopy(lpszRet, cch, p);
-		return wcslen(p);
+		return static_cast<DWORD>(wcslen(p));
 	}
 	else
 	{
 		if (lpszDefault) {
 			StringCchCopy(lpszRet, cch, lpszDefault);
-			return wcslen(lpszDefault);
+			return static_cast<DWORD>(wcslen(lpszDefault));
 		}
 		else {
 			lpszRet = NULL;
@@ -460,7 +466,7 @@ DWORD CGdippSettings::_GetFreeTypeProfileString(LPCTSTR lpszKey, LPCTSTR lpszDef
 	{
 		LPCTSTR p = m_Config[names.c_str()][lpszKey];
 		StringCchCopy(lpszRet, cch, p);
-		return wcslen(p);
+		return static_cast<DWORD>(wcslen(p));
 	}
 	else
 	{
@@ -469,36 +475,45 @@ DWORD CGdippSettings::_GetFreeTypeProfileString(LPCTSTR lpszKey, LPCTSTR lpszDef
 		{
 			LPCTSTR p = m_Config[names.c_str()][lpszKey];
 			StringCchCopy(lpszRet, cch, p);
-			return wcslen(p);
+			return static_cast<DWORD>(wcslen(p));
 		}
 		else
 		if (m_Config[c_szFreeType].IsValueExists(lpszKey))
 		{
 			LPCTSTR p = m_Config[c_szFreeType][lpszKey];
 			StringCchCopy(lpszRet, cch, p);
-			return wcslen(p);
+			return static_cast<DWORD>(wcslen(p));
 		}
 		else
 		if (m_Config[c_szGeneral].IsValueExists(lpszKey))
 		{
 			LPCTSTR p = m_Config[c_szGeneral][lpszKey];
 			StringCchCopy(lpszRet, cch, p);
-			return wcslen(p);
+			return static_cast<DWORD>(wcslen(p));
 		}
 		else
 		{
 			StringCchCopy(lpszRet, cch, lpszDefault);
-			return wcslen(lpszDefault);
+			return static_cast<DWORD>(wcslen(lpszDefault));
 		}
 	}
 }
 
 void CGdippSettings::GetOSVersion() {
-	OSVERSIONINFO info;
-	memset(&info, 0, sizeof(OSVERSIONINFO));
-	info.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
-
-	GetVersionEx(&info);
+	OSVERSIONINFOW info = {};
+	info.dwOSVersionInfoSize = sizeof(info);
+	typedef LONG (WINAPI *RtlGetVersionProc)(POSVERSIONINFOW);
+	HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+	RtlGetVersionProc rtlGetVersion = ntdll
+		? reinterpret_cast<RtlGetVersionProc>(
+			GetProcAddress(ntdll, "RtlGetVersion"))
+		: nullptr;
+	if (!rtlGetVersion || rtlGetVersion(&info) != 0) {
+		// Current builds target Windows 10 and later. A failed capability
+		// query must not make a modern host look like Windows 8/8.1.
+		info.dwMajorVersion = 10;
+		info.dwMinorVersion = 0;
+	}
 	m_dwOSMajorVer = info.dwMajorVersion;
 	m_dwOSMinorVer = info.dwMinorVersion;
 }
@@ -595,7 +610,10 @@ SKIP:
 		;
 	}
 
-	m_bHookChildProcesses = !!_GetFreeTypeProfileInt(_T("HookChildProcesses"), false, lpszFile);
+	// Modern browsers and Electron render text in sandboxed descendants. Child
+	// propagation is therefore the coverage-preserving default; profiles can
+	// still opt out explicitly.
+	m_bHookChildProcesses = !!_GetFreeTypeProfileInt(_T("HookChildProcesses"), true, lpszFile);
 	m_bUseMapping	= !!_GetFreeTypeProfileInt(_T("UseMapping"), false, lpszFile);
 	m_nBolderMode	= _GetFreeTypeProfileInt(_T("BolderMode"), 0, lpszFile);
 	m_nGammaMode	= _GetFreeTypeProfileInt(_T("GammaMode"), -1, lpszFile);
@@ -1654,8 +1672,8 @@ void CFontSubstitutesInfo::initreg()
 	DWORD regtype;
 
 	for (int i = 0; ; ++i) {
-		namesz = name.size();
-		valuesz = value.size();
+		namesz = static_cast<DWORD>(name.size());
+		valuesz = static_cast<DWORD>(value.size());
 		LONG rc = RegEnumValue(h, i, name.data(), &namesz, 0, &regtype, (LPBYTE)value.data(), &valuesz);
 		if (rc == ERROR_NO_MORE_ITEMS) break;
 		if (rc != ERROR_SUCCESS) break;

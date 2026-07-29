@@ -1,0 +1,222 @@
+[CmdletBinding(SupportsShouldProcess = $true)]
+param(
+    [string]$Workspace = (Split-Path -Parent $PSScriptRoot),
+    [string]$InstallDirectory = 'C:\Program Files\MacType',
+    [switch]$ConfigurationOnly
+)
+
+$ErrorActionPreference = 'Stop'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $principal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Administrator privileges are required to update the MacType service.'
+}
+
+$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$backupRoot = Join-Path $env:ProgramData "MacType\Backups\$timestamp"
+$deployLogRoot = Join-Path $env:ProgramData 'MacType\DeploymentLogs'
+$deployLog = Join-Path $deployLogRoot "install-$timestamp.log"
+New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $deployLogRoot | Out-Null
+$rebootRequired = $false
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class YMacTypeNativeMethods {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool MoveFileEx(
+        string existingName, string newName, int flags);
+}
+'@
+
+$moveFileReplaceExisting = 0x1
+$moveFileDelayUntilReboot = 0x4
+
+function Write-DeployLog([string]$Message) {
+    $line = "$(Get-Date -Format o) $Message"
+    Add-Content -LiteralPath $deployLog -Value $line -Encoding utf8
+    Write-Host $line
+}
+
+$payload = [ordered]@{
+    (Join-Path $Workspace 'Rel+Detours\MacType.Core.dll') =
+        (Join-Path $InstallDirectory 'MacType.Core.dll')
+    (Join-Path $Workspace 'x64\Rel+Detours\MacType64.Core.dll') =
+        (Join-Path $InstallDirectory 'MacType64.Core.dll')
+    (Join-Path $Workspace 'Release\macloader.exe') =
+        (Join-Path $InstallDirectory 'MacLoader.exe')
+    (Join-Path $Workspace 'x64\Release\macloader64.exe') =
+        (Join-Path $InstallDirectory 'MacLoader64.exe')
+}
+
+if (-not $ConfigurationOnly) {
+    foreach ($source in $payload.Keys) {
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "Missing deployment input: $source"
+        }
+    }
+}
+
+$service = Get-Service -Name MacType -ErrorAction SilentlyContinue
+$wasRunning = $service -and $service.Status -ne 'Stopped'
+try {
+    if ($wasRunning) {
+        Write-DeployLog 'Stopping MacType service.'
+        Stop-Service -Name MacType -Force
+        (Get-Service -Name MacType).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Stopped,
+            [TimeSpan]::FromSeconds(30))
+    }
+    Get-Process MacTray -ErrorAction SilentlyContinue |
+        Stop-Process -Force
+
+    foreach ($entry in $payload.GetEnumerator()) {
+        if ($ConfigurationOnly) {
+            break
+        }
+        $source = $entry.Key
+        $destination = $entry.Value
+        $leaf = Split-Path -Leaf $destination
+        if (Test-Path -LiteralPath $destination) {
+            Copy-Item -Force -LiteralPath $destination -Destination (
+                Join-Path $backupRoot $leaf)
+        }
+        $staged = Join-Path $InstallDirectory (
+            ".$leaf.ymactype-new-$timestamp")
+        Copy-Item -Force -LiteralPath $source -Destination $staged
+        $sourceHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath $source).Hash
+        $stagedHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath $staged).Hash
+        if ($sourceHash -ne $stagedHash) {
+            throw "Hash mismatch after staging $destination"
+        }
+
+        $installedImmediately = $true
+        if (Test-Path -LiteralPath $destination) {
+            $retired = Join-Path $InstallDirectory (
+                ".$leaf.ymactype-old-$timestamp")
+            try {
+                Move-Item -LiteralPath $destination -Destination $retired
+                Move-Item -LiteralPath $staged -Destination $destination
+                [void][YMacTypeNativeMethods]::MoveFileEx(
+                    $retired, $null, $moveFileDelayUntilReboot)
+            }
+            catch {
+                Write-DeployLog (
+                    "$leaf is locked; scheduling replacement for next boot.")
+                if (-not [YMacTypeNativeMethods]::MoveFileEx(
+                    $destination, $null, $moveFileDelayUntilReboot)) {
+                    throw "Unable to schedule removal of $destination"
+                }
+                if (-not [YMacTypeNativeMethods]::MoveFileEx(
+                    $staged, $destination,
+                    $moveFileDelayUntilReboot -bor
+                    $moveFileReplaceExisting)) {
+                    throw "Unable to schedule replacement of $destination"
+                }
+                $installedImmediately = $false
+                $rebootRequired = $true
+            }
+        }
+        else {
+            Move-Item -LiteralPath $staged -Destination $destination
+        }
+
+        if ($installedImmediately) {
+            $installedHash = (Get-FileHash -Algorithm SHA256 `
+                -LiteralPath $destination).Hash
+            if ($sourceHash -ne $installedHash) {
+                throw "Hash mismatch after installing $destination"
+            }
+        }
+        Write-DeployLog "Installed $leaf immediate=$installedImmediately."
+    }
+
+    $ini = Join-Path $InstallDirectory 'MacType.ini'
+    if (Test-Path -LiteralPath $ini) {
+        Copy-Item -Force -LiteralPath $ini -Destination (
+            Join-Path $backupRoot 'MacType.ini')
+        $content = Get-Content -LiteralPath $ini -Raw
+        if ($content -match '(?im)^\s*HookChildProcesses\s*=') {
+            $content = $content -replace (
+                '(?im)^\s*HookChildProcesses\s*=.*$'),
+                'HookChildProcesses=1'
+        }
+        elseif ($content -match '(?im)^\s*\[General\]\s*$') {
+            $content = $content -replace (
+                '(?im)^\s*\[General\]\s*$'),
+                "[General]`r`nHookChildProcesses=1"
+        }
+        else {
+            $content = "[General]`r`nHookChildProcesses=1`r`n$content"
+        }
+        $processExclusions = @(
+            'MacLoader.exe',
+            'MacLoader64.exe',
+            'MSBuild.exe',
+            'cl.exe',
+            'link.exe',
+            'rc.exe',
+            'mspdbsrv.exe',
+            'git.exe',
+            'taskkill.exe'
+        )
+        if ($content -notmatch '(?im)^\s*\[UnloadDll\]\s*$') {
+            $content += "`r`n[UnloadDll]`r`n"
+        }
+        foreach ($processName in $processExclusions) {
+            if ($content -notmatch (
+                "(?im)^\s*" + [regex]::Escape($processName) +
+                "\s*(?:;.*)?$")) {
+                $content = $content -replace (
+                    '(?im)^\s*\[UnloadDll\]\s*$'),
+                    "[UnloadDll]`r`n$processName"
+            }
+        }
+        Set-Content -LiteralPath $ini -Value $content -Encoding unicode
+    }
+
+    Set-Service -Name MacType -StartupType Automatic
+    Start-Service -Name MacType
+    (Get-Service -Name MacType).WaitForStatus(
+        [ServiceProcess.ServiceControllerStatus]::Running,
+        [TimeSpan]::FromSeconds(30))
+    Write-DeployLog "Deployment complete. Backup=$backupRoot"
+    if ($rebootRequired) {
+        Write-DeployLog (
+            'One or more locked files will be replaced before services start ' +
+            'at the next boot.')
+    }
+}
+catch {
+    Write-DeployLog "Deployment failed: $($_.Exception.Message)"
+    foreach ($entry in $payload.GetEnumerator()) {
+        $backup = Join-Path $backupRoot (
+            Split-Path -Leaf $entry.Value)
+        if (Test-Path -LiteralPath $backup) {
+            Copy-Item -Force -LiteralPath $backup `
+                -Destination $entry.Value
+        }
+    }
+    $iniBackup = Join-Path $backupRoot 'MacType.ini'
+    if (Test-Path -LiteralPath $iniBackup) {
+        Copy-Item -Force -LiteralPath $iniBackup `
+            -Destination (Join-Path $InstallDirectory 'MacType.ini')
+    }
+    if ($wasRunning) {
+        Start-Service -Name MacType -ErrorAction SilentlyContinue
+    }
+    throw
+}
+
+[pscustomobject]@{
+    InstallDirectory = $InstallDirectory
+    BackupDirectory = $backupRoot
+    DeploymentLog = $deployLog
+    ServiceStatus = (Get-Service -Name MacType).Status
+    RebootRequired = $rebootRequired
+}

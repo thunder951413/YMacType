@@ -1,20 +1,22 @@
 #pragma once
 
 #define _CRT_SECURE_NO_DEPRECATE 1
-#ifdef _WIN64
-#define _WIN32_WINNT _WIN32_WINNT_WIN10
-#define WINVER _WIN32_WINNT_VISTA
-#else
-#define _WIN32_WINNT _WIN32_WINNT_WIN10
-#define WINVER _WIN32_WINNT_WIN10
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
 #endif
-#define NTDDI_VERSION NTDDI_WIN10_RS3
+#ifndef WINVER
+#define WINVER _WIN32_WINNT
+#endif
+#ifndef NTDDI_VERSION
+#define NTDDI_VERSION 0x0A000004
+#endif
 #define WIN32_LEAN_AND_MEAN 1
 #define UNICODE  1
 #define _UNICODE 1
 
 #define NOMINMAX
 #include <Windows.h>
+#include <tchar.h>
 #include <Uxtheme.h>
 #include <usp10.h>
 //#include <limits>
@@ -41,7 +43,6 @@
 
 #define for if(0);else for
 
-#include <tchar.h>
 #include <stddef.h>
 #define STRSAFE_NO_DEPRECATE
 #include <strsafe.h>
@@ -164,9 +165,9 @@ static void _Trace(LPCTSTR pszFormat, ...)
 	CCriticalSectionLock __lock;
 	va_list argptr;
 	va_start(argptr, pszFormat);
-	//w(v)sprintfは1024文字以上返してこない
 	TCHAR szBuffer[10240];
-	wvsprintf(szBuffer, pszFormat, argptr);
+	_vsntprintf_s(szBuffer, _countof(szBuffer), _TRUNCATE, pszFormat, argptr);
+	va_end(argptr);
 
 	//デバッガをアタッチしてる時はデバッガにメッセージを出す
 	//if (IsDebuggerPresent()) {
@@ -228,9 +229,9 @@ static void _Trace2(LPCTSTR pszFormat, ...)
 	CCriticalSectionLock __lock;
 	va_list argptr;
 	va_start(argptr, pszFormat);
-	//w(v)sprintfは1024文字以上返してこない
 	TCHAR szBuffer[1024];
-	wvsprintf(szBuffer, pszFormat, argptr);
+	_vsntprintf_s(szBuffer, _countof(szBuffer), _TRUNCATE, pszFormat, argptr);
+	va_end(argptr);
 	OutputDebugString(szBuffer);
 }
 
@@ -643,5 +644,5 @@ void HookD2DDll();
 bool HookD2D1();
 void HookGdiplus();
 void ChangeFileName(LPWSTR lpSrc, int nSize, LPCWSTR lpNewFileName);
-std::wstring MakeUniqueFontName(const std::wstring strFullName, const std::wstring strFamilyName, const std::wstring strStyleName);
-std::string WstringToString(const std::wstring str);
+std::wstring MakeUniqueFontName(const std::wstring& strFullName, const std::wstring& strFamilyName, const std::wstring& strStyleName);
+std::string WstringToString(const std::wstring& str);

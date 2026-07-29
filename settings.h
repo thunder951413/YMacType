@@ -233,9 +233,9 @@ interface IControlCenter
 	virtual ULONG STDMETHODCALLTYPE AddRef( void) = 0;
 	virtual ULONG STDMETHODCALLTYPE Release( void) = 0;
 	virtual ULONG WINAPI GetVersion(void) = 0;
-	virtual BOOL WINAPI SetIntAttribute(int eSet, int nValue) = 0;
+	virtual BOOL WINAPI SetIntAttribute(int eSet, INT_PTR nValue) = 0;
 	virtual BOOL WINAPI SetFloatAttribute(int eSet, float nValue) = 0;
-	virtual int WINAPI GetIntAttribute(int eSet) = 0;
+	virtual INT_PTR WINAPI GetIntAttribute(int eSet) = 0;
 	virtual float WINAPI GetFloatAttribute(int eSet) = 0;
 	virtual BOOL WINAPI RefreshSetting(void) = 0;
 	virtual BOOL WINAPI EnableRender(BOOL bEnable) = 0;
@@ -380,7 +380,7 @@ private:
 	CFontSubstitutesInfo m_FontSubstitutesInfo;
 
 	CGdippSettings()
-		: m_bHookChildProcesses(false)
+		: m_bHookChildProcesses(true)
 		, m_bUseMapping(false)
 		, m_bLoadOnDemand(false)
 		, m_bEnableShadow(false)
@@ -426,10 +426,10 @@ private:
 
 	}
 
+public:
 	static CGdippSettings* CreateInstance();
 	static void DestroyInstance();
 
-public:
 	static CGdippSettings* GetInstance();
 	static const CGdippSettings* GetInstanceNoInit();	//FreeTypeFontEngine
 
@@ -675,67 +675,69 @@ public:
 		}
 	}
 
-	BOOL WINAPI SetIntAttribute(int eSet, int nValue)
+	BOOL WINAPI SetIntAttribute(int eSet, INT_PTR nValue)
 	{
 		CGdippSettings* pSettings = CGdippSettings::GetInstance();
+		const int scalarValue = static_cast<int>(nValue);
 		switch ((eMTSettings)eSet)
 		{
 		case ATTR_HINTINGMODE:
-			pSettings->m_FontSettings.SetHintingMode(nValue);
+			pSettings->m_FontSettings.SetHintingMode(scalarValue);
 			break;
 		case ATTR_ANTIALIASMODE:
-			pSettings->m_FontSettings.SetAntiAliasMode(nValue);
+			pSettings->m_FontSettings.SetAntiAliasMode(scalarValue);
 			break;
 		case ATTR_NormalWeight:
-			pSettings->m_FontSettings.SetNormalWeight(nValue);
+			pSettings->m_FontSettings.SetNormalWeight(scalarValue);
 			break;
 		case ATTR_BoldWeight:
-			pSettings->m_FontSettings.SetBoldWeight(nValue);
+			pSettings->m_FontSettings.SetBoldWeight(scalarValue);
 			break;
 		case ATTR_ItalicSlant:
-			pSettings->m_FontSettings.SetItalicSlant(nValue);
+			pSettings->m_FontSettings.SetItalicSlant(scalarValue);
 			break;
 		case ATTR_EnableKerning:
-			pSettings->m_FontSettings.SetKerning(nValue);
+			pSettings->m_FontSettings.SetKerning(scalarValue);
 			break;
 		case ATTR_GammaMode:
-			pSettings->m_nGammaMode = nValue;
+			pSettings->m_nGammaMode = scalarValue;
 			RefreshAlphaTable();
 			break;
 		case ATTR_LcdFilter:
-			pSettings->m_nLcdFilter = nValue;
+			pSettings->m_nLcdFilter = scalarValue;
 			UpdateLcdFilter();
 			break;
 		case ATTR_BolderMode:
-			pSettings->m_nBolderMode = nValue;
+			pSettings->m_nBolderMode = scalarValue;
 			break;
 		case ATTR_TextTuning:
-			pSettings->InitTuneTable(nValue,  pSettings->m_nTuneTable);
+			pSettings->InitTuneTable(scalarValue,  pSettings->m_nTuneTable);
 			RefreshAlphaTable();
 			break;
 		case ATTR_TextTuningR:
-			pSettings->InitTuneTable(nValue,  pSettings->m_nTuneTableR);
+			pSettings->InitTuneTable(scalarValue,  pSettings->m_nTuneTableR);
 			RefreshAlphaTable();
 			break;
 		case ATTR_TextTuningG:
-			pSettings->InitTuneTable(nValue,  pSettings->m_nTuneTableG);
+			pSettings->InitTuneTable(scalarValue,  pSettings->m_nTuneTableG);
 			RefreshAlphaTable();
 			break;
 		case ATTR_TextTuningB:
-			pSettings->InitTuneTable(nValue,  pSettings->m_nTuneTableB);
+			pSettings->InitTuneTable(scalarValue,  pSettings->m_nTuneTableB);
 			RefreshAlphaTable();
 			break;
 		case ATTR_LoadOnDemand:
 			pSettings->m_bLoadOnDemand = !!nValue;
 			break;
 		case ATTR_ShadowAlpha:
-			pSettings->m_nShadow[2] = nValue;
-			pSettings->m_bEnableShadow = (nValue!=1);
+			pSettings->m_nShadow[2] = scalarValue;
+			pSettings->m_bEnableShadow = (scalarValue != 1);
 			RefreshAlphaTable();
 			break;
 		case ATTR_ShadowOffset:
-			pSettings->m_nShadow[1] = nValue;
-			pSettings->m_nShadow[0] = nValue;
+			pSettings->m_nShadow[1] = scalarValue;
+			pSettings->m_nShadow[0] = scalarValue;
+			break;
 		case ATTR_Fontlink:
 			if (!!pSettings->m_bFontLink != !!nValue)
 			{
@@ -743,10 +745,10 @@ public:
 				if (nValue)
 					pSettings->m_fontlinkinfo.init();
 			}
-			pSettings->m_bFontLink = nValue;
+			pSettings->m_bFontLink = scalarValue;
 			break;	
 		case ATTR_FontLoader:
-			pSettings->m_nFontLoader = nValue;
+			pSettings->m_nFontLoader = scalarValue;
 			break;
 		case ATTR_LcdFilterWeight:
 			if (!nValue)
@@ -763,7 +765,7 @@ public:
 			pSettings->m_bHintSmallFont = !!nValue;
 			break;
 		case ATTR_MaxBitmap:
-			pSettings->m_nBitmapHeight = nValue;
+			pSettings->m_nBitmapHeight = scalarValue;
 			break;
 		case ATTR_PixelLayout:
 			pSettings->m_bUseCustomPixelLayout = false;
@@ -836,7 +838,7 @@ public:
 		m_bDirty = true;
 		return true;
 	};
-	int WINAPI GetIntAttribute(int eSet) {
+	INT_PTR WINAPI GetIntAttribute(int eSet) {
 		CGdippSettings* pSettings = CGdippSettings::GetInstance();
 		switch ((eMTSettings)eSet)
 		{
@@ -879,7 +881,9 @@ public:
 		case ATTR_Fontlink:
 			return pSettings->m_bFontLink;
 		case ATTR_LcdFilterWeight:
-			return pSettings->m_bUseCustomLcdFilter? (int)pSettings->m_arrLcdFilterWeights:NULL;
+			return pSettings->m_bUseCustomLcdFilter
+				? reinterpret_cast<INT_PTR>(pSettings->m_arrLcdFilterWeights)
+				: 0;
 		default:
 			return 0;
 		}	
@@ -971,6 +975,7 @@ public:
 		for(; p != end; ++p) {
 			if (p->GetHash() == hash) {
 				pSettings->m_arrIndividual.Remove(*p);
+				break;
 			}
 		}
 		m_bDirty = true;

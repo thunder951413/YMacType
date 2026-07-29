@@ -31,7 +31,7 @@ struct CFontSetCache
 		:fontsetsize(0)
 	{
 		fontsetsize=64;
-		fontsetlist = (const CFontSettings**)malloc(fontsetsize * sizeof(void*));
+		fontsetlist = (const CFontSettings**)calloc(fontsetsize, sizeof(*fontsetlist));
 	}
 	~CFontSetCache()
 	{
@@ -41,8 +41,16 @@ struct CFontSetCache
 	{
 		while ((INT_PTR)faceid>=fontsetsize)
 		{
-			fontsetsize+=64;
-			fontsetlist = (const CFontSettings**)realloc(fontsetlist, fontsetsize);
+			const int oldSize = fontsetsize;
+			const int newSize = oldSize + 64;
+			const CFontSettings** resized = (const CFontSettings**)realloc(
+				fontsetlist, newSize * sizeof(*fontsetlist));
+			if (!resized)
+				return;
+			memset(resized + oldSize, 0,
+				(newSize - oldSize) * sizeof(*fontsetlist));
+			fontsetlist = resized;
+			fontsetsize = newSize;
 		}
 		fontsetlist[(INT_PTR)faceid]=&fset;
 	}

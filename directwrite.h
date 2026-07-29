@@ -3,6 +3,9 @@
 
 #pragma once
 
+void HookLoadedRenderingModules();
+DWORD GetObservedComMethodImplementationCount();
+
 #ifdef EASYHOOK
 
 #include "easyhook.h"

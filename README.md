@@ -7,7 +7,27 @@ Better font rendering for Windows.
 Latest build
 ------------------
 
-[Download](https://github.com/snowie2000/mactype/releases/latest)
+[Download YMacType for Windows 11](https://github.com/thunder951413/YMacType/releases/latest)
+
+YMacType Windows 11 refactor
+------------------
+
+This branch keeps the existing MacTray bootstrap compatible while replacing
+the rendering core and command-line loaders. It supports x86 and x64 (ARM is
+intentionally out of scope) and adds:
+
+- loader-lock-safe initialization with a documented lifecycle/status API;
+- early entry-point injection and automatic child-process propagation;
+- x86/x64 broker injection in both directions;
+- capability-based GDI, DirectWrite and DWriteCore discovery;
+- Chromium/Electron process-tree coverage before renderer sandbox lockdown;
+- per-process UTF-8 diagnostics with rotation and stable diagnostic codes;
+- CFG, CET, DEP/ASLR and W^X-safe remote bootstrap memory;
+- repeatable release packaging, local deployment with backup/rollback, and
+  x86/x64 lifecycle, pixel-rendering and injection tests.
+
+See [the architecture and compatibility notes](architecture/REFACTORING.md)
+for the exact interception and protected-process boundaries.
 
 Official site
 ------------------

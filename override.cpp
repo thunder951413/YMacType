@@ -263,24 +263,23 @@ BOOL WINAPI IMPL_CreateProcessInternalW( HANDLE hToken, LPCTSTR lpApplicationNam
 	return _CreateProcessInternalW(hToken, lpApplicationName, lpCommandLine, lpProcessAttributes, lpThreadAttributes, bInheritHandles, dwCreationFlags, lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation, hNewToken, ORIG_CreateProcessInternalW);
 }*/
 
+BOOL WINAPI IMPL_CreateProcessA(LPCSTR lpApp, LPSTR lpCmd, LPSECURITY_ATTRIBUTES pa, LPSECURITY_ATTRIBUTES ta, BOOL bInherit, DWORD dwFlags, LPVOID lpEnv, LPCSTR lpDir, LPSTARTUPINFOA psi, LPPROCESS_INFORMATION ppi)
+{
+	CCriticalSectionLock lock;
+	return _CreateProcessAorW(
+		lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi,
+		ORIG_CreateProcessA);
+}
+
+BOOL WINAPI IMPL_CreateProcessW(LPCWSTR lpApp, LPWSTR lpCmd, LPSECURITY_ATTRIBUTES pa, LPSECURITY_ATTRIBUTES ta, BOOL bInherit, DWORD dwFlags, LPVOID lpEnv, LPCWSTR lpDir, LPSTARTUPINFOW psi, LPPROCESS_INFORMATION ppi)
+{
+	CCriticalSectionLock lock;
+	return _CreateProcessAorW(
+		lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi,
+		ORIG_CreateProcessW);
+}
+
 /*
-BOOL WINAPI IMPL_nCreateProcessA(LPCSTR lpApp, LPSTR lpCmd, LPSECURITY_ATTRIBUTES pa, LPSECURITY_ATTRIBUTES ta, BOOL bInherit, DWORD dwFlags, LPVOID lpEnv, LPCSTR lpDir, LPSTARTUPINFOA psi, LPPROCESS_INFORMATION ppi)
-{
-	//CThreadCounter __counter;
-	CCriticalSectionLock __lock;
-	TRACE(_T("CreateProcessA(\"%hs\", \"%hs\", ...)\n"), lpApp, lpCmd);
-	return _CreateProcessAorW(lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi, ORIG_nCreateProcessA);
-}
-
-BOOL WINAPI IMPL_nCreateProcessW(LPCWSTR lpApp, LPWSTR lpCmd, LPSECURITY_ATTRIBUTES pa, LPSECURITY_ATTRIBUTES ta, BOOL bInherit, DWORD dwFlags, LPVOID lpEnv, LPCWSTR lpDir, LPSTARTUPINFOW psi, LPPROCESS_INFORMATION ppi)
-{
-	//CThreadCounter __counter;
-	CCriticalSectionLock __lock;
-	TRACE(_T("CreateProcessW(\"%ls\", \"%ls\", ...)\n"), lpApp, lpCmd);
-	return _CreateProcessAorW(lpApp, lpCmd, pa, ta, bInherit, dwFlags, lpEnv, lpDir, psi, ppi, ORIG_nCreateProcessW);
-}
-
-
 BOOL WINAPI IMPL_CreateProcessAsUserA(HANDLE hToken, LPCSTR lpApp, LPSTR lpCmd, LPSECURITY_ATTRIBUTES pa, LPSECURITY_ATTRIBUTES ta, BOOL bInherit, DWORD dwFlags, LPVOID lpEnv, LPCSTR lpDir, LPSTARTUPINFOA psi, LPPROCESS_INFORMATION ppi)
 {
 	//CThreadCounter __counter;
@@ -445,7 +444,7 @@ int WINAPI IMPL_GetTextFaceAliasW(HDC hdc, int nLen, LPWSTR lpAliasW)
 	if (fontcache){
 		if (lpAliasW)
 			StringCchCopy(lpAliasW, LF_FACESIZE, fontcache);
-		bResult = wcslen(fontcache)+1;
+		bResult = static_cast<int>(wcslen(fontcache) + 1);
 	}
 	return bResult;
 }
@@ -498,9 +497,12 @@ DWORD WINAPI IMPL_GetGlyphOutlineW(__in HDC hdc, __in UINT uChar, __in UINT fuFo
 				lpgm->gmBlackBoxX = tm.tmMaxCharWidth;
 			}*/
 			lpgm->gmBlackBoxY += nDeltaY;
-			if (tm.tmAscent - lpgm->gmptGlyphOrigin.y + lpgm->gmBlackBoxY - 1 < tm.tmHeight)	// still has some room to scale up
+			const LONG glyphBottom =
+				tm.tmAscent - lpgm->gmptGlyphOrigin.y +
+				static_cast<LONG>(lpgm->gmBlackBoxY);
+			if (glyphBottom - 1 < tm.tmHeight)	// still has some room to scale up
 			{
-				if (tm.tmAscent - lpgm->gmptGlyphOrigin.y + lpgm->gmBlackBoxY + 1 + nDeltaBlackY > tm.tmHeight)
+				if (glyphBottom + 1 + nDeltaBlackY > tm.tmHeight)
 					lpgm->gmBlackBoxY = tm.tmHeight - tm.tmAscent + lpgm->gmptGlyphOrigin.y + 1;
 				else
 					lpgm->gmBlackBoxY += nDeltaBlackY;
@@ -543,9 +545,12 @@ DWORD WINAPI IMPL_GetGlyphOutlineA(__in HDC hdc, __in UINT uChar, __in UINT fuFo
 			lpgm->gmptGlyphOrigin.y += nDeltaY;	
 
 			lpgm->gmBlackBoxY += nDeltaY;
-			if (tm.tmAscent - lpgm->gmptGlyphOrigin.y + lpgm->gmBlackBoxY - 1 < tm.tmHeight)
+			const LONG glyphBottom =
+				tm.tmAscent - lpgm->gmptGlyphOrigin.y +
+				static_cast<LONG>(lpgm->gmBlackBoxY);
+			if (glyphBottom - 1 < tm.tmHeight)
 			{
-				if (tm.tmAscent - lpgm->gmptGlyphOrigin.y + lpgm->gmBlackBoxY + 1 + nDeltaBlackY > tm.tmHeight)
+				if (glyphBottom + 1 + nDeltaBlackY > tm.tmHeight)
 					lpgm->gmBlackBoxY = tm.tmHeight - tm.tmAscent + lpgm->gmptGlyphOrigin.y + 1;
 				else
 					lpgm->gmBlackBoxY += nDeltaBlackY;
@@ -566,7 +571,9 @@ int WINAPI IMPL_GetTextFaceW( __in HDC hdc, __in int c, __out_ecount_part_opt(c,
 		if (lpName) {
 			int len = Min(LF_FACESIZE, c);
 			StringCchCopy(lpName, len, fontcache);
-			nSize = (int)wcslen(fontcache) > len ? len : wcslen(fontcache) + 1;
+			const size_t faceLength = wcslen(fontcache);
+			nSize = faceLength > static_cast<size_t>(len)
+				? len : static_cast<int>(faceLength + 1);
 		}
 		else {
 			// a request for the size of font
@@ -585,11 +592,12 @@ int WINAPI IMPL_GetTextFaceA( __in HDC hdc, __in int c, __out_ecount_part_opt(c,
 		size_t _Dsize = 2 * wcslen(fontcache) + 1;
 		char *_Dest = new char[_Dsize];
 		memset(_Dest,0,_Dsize);
-		int len =wcstombs(_Dest, fontcache, _Dsize);
+		const size_t converted = wcstombs(_Dest, fontcache, _Dsize);
 		if (lpName)
 			StringCchCopyA(lpName, LF_FACESIZE, _Dest);
 		delete[] _Dest;
-		nSize = len+1;
+		nSize = converted == static_cast<size_t>(-1)
+			? 0 : static_cast<int>(converted + 1);
 	}
 	return nSize;
 }
@@ -753,7 +761,7 @@ HFONT WINAPI IMPL_CreateFontIndirectExW(CONST ENUMLOGFONTEXDV *penumlfex)
 			AddToCachedFont(hf, (WCHAR*)penumlfex->elfEnumLogfontEx.elfLogFont.lfFaceName, (WCHAR *)lfOrg.lfFaceName);
 		}
 		//bypass = false;
-		TRACE(L"Create font %s handle %x\n", lfOrg.lfFaceName, (int)hf);
+		TRACE(L"Create font %s handle %p\n", lfOrg.lfFaceName, hf);
 		return hf;
 }
 
@@ -1153,23 +1161,25 @@ BOOL WINAPI IMPL_ExtTextOutW(HDC hdc, int nXStart, int nYStart, UINT fuOptions, 
 		}
 	}
 
-	CAutoVectorPtr<INT> newdx;
+	std::unique_ptr<INT[]> newdx;
 	if (!lpDx) {
-		newdx.Allocate(cbString);
+		newdx.reset(new (std::nothrow) INT[cbString]);
+		if (!newdx)
+			return ORIG_ExtTextOutW(hdc, nXStart, nYStart, fuOptions, lprc, lpString, cbString, lpDx);
 		SIZE p = { 0 };
 		BOOL r = false;
 		if (fuOptions & ETO_GLYPH_INDEX)
-			r = GetTextExtentExPointI(hdc, (LPWORD)lpString, cbString, 0, NULL, newdx, &p);
+			r = GetTextExtentExPointI(hdc, (LPWORD)lpString, cbString, 0, NULL, newdx.get(), &p);
 		else
-			r = GetTextExtentExPointW(hdc, lpString, cbString, 0, NULL, newdx, &p);
+			r = GetTextExtentExPointW(hdc, lpString, cbString, 0, NULL, newdx.get(), &p);
 		if (r) {
 			for (int i = cbString - 1; i > 0; --i) {
 				newdx[i] -= newdx[i - 1];
 			}
-			lpDx = newdx;
+			lpDx = newdx.get();
 		}
 		else {
-			newdx.Free();
+			newdx.reset();
 		}
 	}
 
@@ -1341,7 +1351,7 @@ ETO_TRY();
 	if (!hCurFont) {		// failed
 		ETO_THROW(ETOE_SETFONT);
 	}
-	TRACE(L"Draw text \"%s\", font=\"%s\", handle=%x\n", lpString, strFamilyName.c_str(), (int)hCurFont);
+	TRACE(L"Draw text \"%s\", font=\"%s\", handle=%p\n", lpString, strFamilyName.c_str(), hCurFont);
 	if (!ORIG_GetObjectW(hCurFont, sizeof(LOGFONT), &lf)) {
 		ETO_THROW(ETOE_SETFONT);
 	}//30ms
@@ -1431,7 +1441,7 @@ ETO_TRY();
 		width-=FTInfo.xBase;	// increase width
 		FTInfo.x -= FTInfo.xBase;	// increase width for cursor
 		curPos.x+=FTInfo.xBase;	// change cursor position
-		for (int i=0;i<cbString;++i)
+		for (UINT i=0;i<cbString;++i)
 			FTInfo.Dx[i]-=FTInfo.xBase;	// modify the start position of painting
 	}
 
@@ -1691,19 +1701,6 @@ ETO_CATCH();
 	pTLInfo->InExtTextOut(false);
 	return ret;
 }
-
-BOOL WINAPI IMPL_MySetProcessMitigationPolicy(
-	_In_ PROCESS_MITIGATION_POLICY MitigationPolicy,
-	_In_ PVOID                     lpBuffer,
-	_In_ SIZE_T                    dwLength
-	)
-{
-	if (MitigationPolicy == ProcessDynamicCodePolicy) {
-		PPROCESS_MITIGATION_DYNAMIC_CODE_POLICY(lpBuffer)->ProhibitDynamicCode = false;
-	}
-	return ORIG_MySetProcessMitigationPolicy(MitigationPolicy, lpBuffer, dwLength);
-}
-
 
 //HFONT dummy=NULL;
 /*

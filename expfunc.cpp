@@ -1,10 +1,11 @@
+#include <windows.h>
+
 #ifndef _GDIPP_EXE
 #include "settings.h"
 #include "override.h"
 #include <tlhelp32.h>
 #include <shlwapi.h>	//DLLVERSIONINFO
 #include "undocAPI.h"
-#include <windows.h>
 #include <dwrite_1.h>
 #include <dwrite_2.h>
 #include <dwrite_3.h>
@@ -12,6 +13,7 @@
 #include "wow64ext.h"
 #include <VersionHelpers.h>
 #include "crc32.h"
+#include "diagnostics.h"
 
 // win2k以降
 //#pragma comment(linker, "/subsystem:windows,5.0")
@@ -177,28 +179,28 @@ EXTERN_C void SafeUnload()
 void ChangeFileName(LPWSTR lpSrc, int nSize, LPCWSTR lpNewFileName) {
 	for (int i = nSize; i > 0; --i){
 		if (lpSrc[i] == L'\\') {
-			lpSrc[i + 1] = L'\0';
+			StringCchCopyW(lpSrc + i + 1, MAX_PATH - i - 1, lpNewFileName);
 			break;
 		}
 	}
-	wcscat(lpSrc, lpNewFileName);
 }
 
-std::string WstringToString(const std::wstring str)
-{// wstringתstring
-	unsigned len = str.size() * 4;
-	setlocale(LC_CTYPE, "");
-	char *p = new char[len];
-	wcstombs(p, str.c_str(), len);
-	std::string str1(p);
-	delete[] p;
-	return str1;
+std::string WstringToString(const std::wstring& str)
+{
+	return to_byte_string(str);
 }
 
 // make a unique name with fullname + crc32_of_fullname + familyname +stylename
-std::wstring MakeUniqueFontName(const std::wstring strFullName, const std::wstring strFamilyName, const std::wstring strStyleName)
+std::wstring MakeUniqueFontName(const std::wstring& strFullName, const std::wstring& strFamilyName, const std::wstring& strStyleName)
 {
-	return strFullName + to_wstring(crc32::getCrc32(0, strFullName.c_str(), strFullName.length() * sizeof(WCHAR))) + strFamilyName + strStyleName;
+	const size_t nameBytes =
+		strFullName.length() * sizeof(WCHAR);
+	const int crcBytes = static_cast<int>(
+		nameBytes > INT_MAX ? INT_MAX : nameBytes);
+	return strFullName +
+		to_wstring(crc32::getCrc32(
+			0, strFullName.c_str(), crcBytes)) +
+		strFamilyName + strStyleName;
 }
 
 #ifndef Assert
@@ -256,7 +258,7 @@ FARPROC K32GetProcAddress(LPCSTR lpProcName)
 	//kernel32のベースアドレス取得
 	WCHAR sysdir[MAX_PATH];
 	GetWindowsDirectory(sysdir, MAX_PATH);
-	wcscat(sysdir, L"\\SysWow64\\kernel32.dll");	// ¼ÓÔØkernel32.dll
+	StringCchCatW(sysdir, MAX_PATH, L"\\SysWow64\\kernel32.dll");	// ¼ÓÔØkernel32.dll
 	HANDLE hFile = CreateFile(sysdir, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, NULL, NULL);
 	if (hFile == INVALID_HANDLE_VALUE)
 		return NULL;
@@ -295,6 +297,8 @@ public:
 		//int 03hで埋める
 		FillMemory(this, sizeof(*this), 0xcc);
 	}
+#if 0
+	// Cross-architecture injection now uses the matching MacLoader broker.
 	bool initWow64(LPDWORD remoteaddr, LONG orgEIP)	//Wow64初始化
 	{
 		//WORD嫬奅僠僃僢僋
@@ -599,10 +603,12 @@ emit_db(0xC3);
 		// gdi++.dllのパス
 		int nSize = GetModuleFileNameW(GetDLLInstance(), dllpath, MAX_PATH);
 		if (nSize) {
-			ChangeFileName(dllpath, nSize, L"MTBootStrap.dll");
+			ChangeFileName(dllpath, nSize, L"MacType.dll");
 		}
 		return !!nSize;
 	}
+#endif
+#ifdef _M_IX86
 	bool init32(LPDWORD remoteaddr, LONG orgEIP)	//32位程序初始化
 	{
 		//WORD境界チェック
@@ -646,11 +652,11 @@ emit_dw(0xD0FF);	//call eax
 
 		// gdi++.dllのパス
 		int nSize = GetModuleFileNameW(GetDLLInstance(), dllpath, MAX_PATH);
-		if (nSize) {
-			ChangeFileName(dllpath, nSize, L"MTBootStrap.dll");
-		}
 		return !!nSize;
 	}
+#endif
+#if 0
+	// Cross-architecture injection now uses the matching MacLoader broker.
 	bool init64From32(DWORD64 remoteaddr, DWORD64 orgEIP)
 	{
 		C_ASSERT((offsetof(opcode_data, dllpath) & 1) == 0);
@@ -703,7 +709,7 @@ emit_dw(0xD0FF);	//call eax
 
 		int nSize = GetModuleFileNameW(GetDLLInstance(), dllpath, MAX_PATH);
 		if (nSize) {
-			ChangeFileName(dllpath, nSize, L"MTBootStrap64.dll");
+			ChangeFileName(dllpath, nSize, L"MacType64.dll");
 		}
 		return !!nSize;
 	}
@@ -714,7 +720,7 @@ emit_dw(0xD0FF);	//call eax
 
 		int nSize = GetModuleFileNameW(GetDLLInstance(), dllpath, MAX_PATH);
 		if (nSize) {
-			ChangeFileName(dllpath, nSize, L"MTBootStrap64.dll");
+			ChangeFileName(dllpath, nSize, L"MacType64.dll");
 		}
 		if (!nSize)
 			return false;
@@ -812,6 +818,8 @@ emit_dw(0xD0FF);	//call eax
 		return !!nSize;
 	}
 
+#endif
+#ifdef _WIN64
 	bool init(DWORD_PTR* remoteaddr, DWORD_PTR orgEIP)
 	{
 		//WORD境界チェック
@@ -828,7 +836,13 @@ emit_dw(0xD0FF);	//call eax
 
 		//なぜかGetProcAddressでLoadLibraryWのアドレスが正しく取れないことがあるので
 		//kernel32のヘッダから自前で取得する
-		static FARPROC pfn = (FARPROC)((INT_PTR)CDllHelper::MyGetProcAddress(GetModuleHandle(L"kernel32.dll"), L"LoadLibraryW") - (INT_PTR)GetModuleHandle(L"kernel32.dll"));
+		static DWORD pfn = static_cast<DWORD>(
+			reinterpret_cast<INT_PTR>(
+				CDllHelper::MyGetProcAddress(
+					GetModuleHandle(L"kernel32.dll"),
+					L"LoadLibraryW")) -
+			reinterpret_cast<INT_PTR>(
+				GetModuleHandle(L"kernel32.dll")));
 		/*WCHAR msg[500] = { 0 };
 		wsprintf(msg, L"API paddr: 0x%I64x\r\nOffset: %x\r\nAPI addr: 0x%I64x\r\nKernel32.dll: 0x%I64x\r\nKernelBase: 0x%I64x", (DWORD_PTR)pfn, *(PDWORD)pfn, *(PDWORD)pfn + (DWORD_PTR)GetModuleHandle(L"kernel32.dll"),
 			(DWORD_PTR)GetModuleHandle(L"kernel32.dll"), (DWORD_PTR)GetModuleHandle(L"kernelbase.dll"));
@@ -1221,11 +1235,9 @@ emit_db(0xC1);
 
 		// gdi++.dllのパス
 		int nSize = GetModuleFileNameW(GetDLLInstance(), dllpath, MAX_PATH);
-		if (nSize) {
-			ChangeFileName(dllpath, nSize, L"MTBootStrap64.dll");
-		}
 		return !!nSize;
 	}
+#endif
 
 };
 #include <poppack.h>
@@ -1261,6 +1273,119 @@ int GetSystemBits()
 
 static bool bIsOS64 = GetSystemBits() == 64;	// check if running in a x64 system.
 
+static BOOL InjectWithArchitectureBroker(
+	const PROCESS_INFORMATION* target,
+	bool targetIs64Bit)
+{
+	if (!target)
+		return FALSE;
+
+	wchar_t directory[MAX_PATH] = {};
+	if (!GetModuleFileNameW(
+		GetDLLInstance(), directory, _countof(directory)))
+		return FALSE;
+	wchar_t* slash = wcsrchr(directory, L'\\');
+	if (!slash)
+		return FALSE;
+	*slash = L'\0';
+
+	wchar_t broker[MAX_PATH] = {};
+	wchar_t core[MAX_PATH] = {};
+	if (FAILED(StringCchPrintfW(
+		broker, _countof(broker), L"%s\\%s",
+		directory,
+		targetIs64Bit ? L"MacLoader64.exe" : L"MacLoader.exe")) ||
+		FAILED(StringCchPrintfW(
+			core, _countof(core), L"%s\\%s",
+			directory,
+			targetIs64Bit
+				? L"MacType64.Core.dll"
+				: L"MacType.Core.dll")) ||
+		GetFileAttributesW(broker) == INVALID_FILE_ATTRIBUTES ||
+		GetFileAttributesW(core) == INVALID_FILE_ATTRIBUTES) {
+		MacTypeSetLastDiagnostic(
+			MacTypeDiagnosticCode::ChildInjectionFailed,
+			ERROR_FILE_NOT_FOUND);
+		MacTypeLog(
+			MacTypeLogLevel::Error,
+			MacTypeDiagnosticCode::ChildInjectionFailed,
+			L"architecture broker or core is missing broker=%s core=%s",
+			broker, core);
+		return FALSE;
+	}
+
+	wchar_t command[3 * MAX_PATH] = {};
+	if (FAILED(StringCchPrintfW(
+		command,
+		_countof(command),
+		L"\"%s\" --attach %lu %lu \"%s\"",
+		broker,
+		target->dwProcessId,
+		target->dwThreadId,
+		core)))
+		return FALSE;
+
+	MacTypeSetLastDiagnostic(
+		MacTypeDiagnosticCode::ChildInjectionBegin, ERROR_SUCCESS);
+	MacTypeLog(
+		MacTypeLogLevel::Info,
+		MacTypeDiagnosticCode::ChildInjectionBegin,
+		L"starting architecture broker targetPid=%lu target64=%d",
+		target->dwProcessId, targetIs64Bit);
+
+	STARTUPINFOW startup = {};
+	startup.cb = sizeof(startup);
+	PROCESS_INFORMATION brokerProcess = {};
+	auto createProcess = ORIG_CreateProcessW
+		? ORIG_CreateProcessW
+		: ::CreateProcessW;
+	if (!createProcess(
+		broker,
+		command,
+		nullptr,
+		nullptr,
+		FALSE,
+		CREATE_NO_WINDOW,
+		nullptr,
+		directory,
+		&startup,
+		&brokerProcess)) {
+		const DWORD error = GetLastError();
+		MacTypeSetLastDiagnostic(
+			MacTypeDiagnosticCode::ChildInjectionFailed, error);
+		MacTypeLog(
+			MacTypeLogLevel::Error,
+			MacTypeDiagnosticCode::ChildInjectionFailed,
+			L"failed to start architecture broker targetPid=%lu",
+			target->dwProcessId);
+		return FALSE;
+	}
+
+	const DWORD waitResult =
+		WaitForSingleObject(brokerProcess.hProcess, 60000);
+	DWORD exitCode = ERROR_TIMEOUT;
+	if (waitResult == WAIT_OBJECT_0)
+		GetExitCodeProcess(brokerProcess.hProcess, &exitCode);
+	CloseHandle(brokerProcess.hThread);
+	CloseHandle(brokerProcess.hProcess);
+
+	const BOOL ready =
+		waitResult == WAIT_OBJECT_0 && exitCode == ERROR_SUCCESS;
+	MacTypeSetLastDiagnostic(
+		ready
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		ready ? ERROR_SUCCESS : exitCode);
+	MacTypeLog(
+		ready ? MacTypeLogLevel::Info : MacTypeLogLevel::Error,
+		ready
+			? MacTypeDiagnosticCode::ChildInjectionReady
+			: MacTypeDiagnosticCode::ChildInjectionFailed,
+		L"architecture broker completed targetPid=%lu exit=%lu",
+		target->dwProcessId, exitCode);
+	return ready;
+}
+
 #ifdef _M_IX86
 // 止めているプロセスにLoadLibraryするコードを注入
 EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
@@ -1268,7 +1393,9 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 	BOOL bIsX64Proc = false;
 	if (bIsOS64 && IsWow64Process(ppi->hProcess, &bIsX64Proc) && !bIsX64Proc)
 	{
-		//x86 process launches a x64 process
+		return InjectWithArchitectureBroker(ppi, true);
+		/*
+		// Legacy x86-to-x64 shellcode retained temporarily for reference.
 		_CONTEXT64 ctx = { 0 };
 		ctx.ContextFlags = CONTEXT_CONTROL;
 		if (!GetThreadContext64(ppi->hThread, &ctx))
@@ -1291,7 +1418,9 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 		}
 
 		opcode_data local;
-		DWORD64 remote = VirtualAllocEx64(ppi->hProcess, NULL, sizeof(opcode_data), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		DWORD64 remote = VirtualAllocEx64(
+			ppi->hProcess, NULL, sizeof(opcode_data),
+			MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		if (!remote)
 			return false;
 		bool basmIniter = dwLoaderOffset ? local.init64From32(remote, ctx.Rip, dwLoaderOffset) : local.init64From32(remote, ctx.Rip);
@@ -1300,11 +1429,17 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 			return false;
 		}
 
-		//FlushInstructionCache64(ppi->hProcess, remote, sizeof(opcode_data));
+		DWORD oldProtection = 0;
+		if (!VirtualProtectEx64(
+			ppi->hProcess, remote, sizeof(opcode_data),
+			PAGE_EXECUTE_READ, &oldProtection)) {
+			VirtualFreeEx64(ppi->hProcess, remote, 0, MEM_RELEASE);
+			return false;
+		}
 		//FARPROC a=(FARPROC)remote;
 		//a();
 		ctx.Rip = (DWORD64)remote;
-		return !!SetThreadContext64(ppi->hThread, &ctx);
+		return !!SetThreadContext64(ppi->hThread, &ctx);*/
 	}
 	else {
 		CONTEXT ctx = { 0 };
@@ -1313,7 +1448,10 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 			return false;
 
 		opcode_data local;
-		opcode_data* remote = (opcode_data*)VirtualAllocEx(ppi->hProcess, NULL, sizeof(opcode_data), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		opcode_data* remote = static_cast<opcode_data*>(
+			VirtualAllocEx(
+				ppi->hProcess, NULL, sizeof(opcode_data),
+				MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
 		if (!remote)
 			return false;
 
@@ -1323,6 +1461,13 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 			return false;
 		}
 
+		DWORD oldProtection = 0;
+		if (!VirtualProtectEx(
+			ppi->hProcess, remote, sizeof(opcode_data),
+			PAGE_EXECUTE_READ, &oldProtection)) {
+			VirtualFreeEx(ppi->hProcess, remote, 0, MEM_RELEASE);
+			return false;
+		}
 		FlushInstructionCache(ppi->hProcess, remote, sizeof(opcode_data));
 		ctx.Eip = (DWORD)remote;
 		return !!SetThreadContext(ppi->hThread, &ctx);
@@ -1335,6 +1480,8 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 	IsWow64Process(ppi->hProcess, &bWow64);
 	if (bWow64)
 	{
+		return InjectWithArchitectureBroker(ppi, false);
+		/*
 		WOW64_CONTEXT ctx = { 0 };
 		ctx.ContextFlags = CONTEXT_CONTROL;
 		//CREATE_SUSPENDEDなので基本的に成功するはず
@@ -1342,7 +1489,9 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 			return false;
 
 		opcode_data local;
-		LPVOID remote = VirtualAllocEx(ppi->hProcess, NULL, sizeof(opcode_data), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		LPVOID remote = VirtualAllocEx(
+			ppi->hProcess, NULL, sizeof(opcode_data),
+			MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		if(!remote)
 			return false;
 
@@ -1352,11 +1501,18 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 				return false;
 		}
 
+		DWORD oldProtection = 0;
+		if (!VirtualProtectEx(
+			ppi->hProcess, remote, sizeof(opcode_data),
+			PAGE_EXECUTE_READ, &oldProtection)) {
+			VirtualFreeEx(ppi->hProcess, remote, 0, MEM_RELEASE);
+			return false;
+		}
 		FlushInstructionCache(ppi->hProcess, remote, sizeof(opcode_data));
 		//FARPROC a=(FARPROC)remote;
 		//a();
 		ctx.Eip = (DWORD)remote;
-		return !!Wow64SetThreadContext(ppi->hThread, &ctx);
+		return !!Wow64SetThreadContext(ppi->hThread, &ctx);*/
 	}
 	else
 	{
@@ -1367,7 +1523,9 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 			return false;
 
 		opcode_data local;
-		LPVOID remote = VirtualAllocEx(ppi->hProcess, NULL, sizeof(opcode_data), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		LPVOID remote = VirtualAllocEx(
+			ppi->hProcess, NULL, sizeof(opcode_data),
+			MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		if(!remote)
 			return false;
 
@@ -1377,6 +1535,13 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 				return false;
 		}
 
+		DWORD oldProtection = 0;
+		if (!VirtualProtectEx(
+			ppi->hProcess, remote, sizeof(opcode_data),
+			PAGE_EXECUTE_READ, &oldProtection)) {
+			VirtualFreeEx(ppi->hProcess, remote, 0, MEM_RELEASE);
+			return false;
+		}
 		FlushInstructionCache(ppi->hProcess, remote, sizeof(opcode_data));
 		//FARPROC a=(FARPROC)remote;
 		//a();
@@ -1388,7 +1553,7 @@ EXTERN_C BOOL WINAPI GdippInjectDLL(const PROCESS_INFORMATION* ppi)
 #endif
 
 template <typename _TCHAR>
-int strlendb(const _TCHAR* psz)
+size_t strlendb(const _TCHAR* psz)
 {
 	const _TCHAR* p = psz;
 	while (*p) {
@@ -1399,9 +1564,9 @@ int strlendb(const _TCHAR* psz)
 }
 
 template <typename _TCHAR>
-_TCHAR* strdupdb(const _TCHAR* psz, int pad)
+_TCHAR* strdupdb(const _TCHAR* psz, size_t pad)
 {
-	int len = strlendb(psz);
+	const size_t len = strlendb(psz);
 	_TCHAR* p = (_TCHAR*)calloc(sizeof(_TCHAR), len + pad);
 	if(p) {
 		memcpy(p, psz, sizeof(_TCHAR) * len);
@@ -1457,7 +1622,7 @@ bool AddPathEnv(CArray<LPWSTR>& arr, LPWSTR dir, int dirlen)
 		LPWSTR pp = p;
 		for (; ;) {
 			for (; *p && *p != L';'; p++);
-			int len = p - pp;
+			const ptrdiff_t len = p - pp;
 			if (len == dirlen && !_wcsnicmp(pp, dir, dirlen)) {
 				return false;
 			}
@@ -1495,7 +1660,7 @@ bool AddX64Env(CArray<LPWSTR>& arr)
 {
 	FARPROC k32 = GetProcAddress(GetModuleHandle(L"kernel32.dll"), "LoadLibraryW");
 	WCHAR szAddr[20] = { 0 };
-	_ui64tow((DWORD64)k32, szAddr, 10);
+	_ui64tow_s((DWORD64)k32, szAddr, _countof(szAddr), 10);
 	//wsprintf(szAddr, L"%Ld", (DWORD_PTR)k32);
 	size_t cch = wcslen(szAddr) + sizeof("MACTYPE_X64ADDR=") + 1;
 	LPWSTR p = (LPWSTR)calloc(sizeof(WCHAR), cch);
@@ -1517,18 +1682,22 @@ EXTERN_C LPWSTR WINAPI GdippEnvironment(DWORD& dwCreationFlags, LPVOID lpEnviron
 #endif
 
 	TCHAR dir[MAX_PATH];
-	int dirlen = GetModuleFileName(GetDLLInstance(), dir, MAX_PATH);
+	DWORD dirlen = GetModuleFileName(GetDLLInstance(), dir, MAX_PATH);
 	LPTSTR lpfilename=dir+dirlen;
 	while (lpfilename>dir && *lpfilename!=_T('\\') && *lpfilename!=_T('/')) --lpfilename;
 	*lpfilename = 0;
-	dirlen = wcslen(dir);
+	dirlen = static_cast<DWORD>(wcslen(dir));
 
 	LPWSTR pEnvW = NULL;
 	if (lpEnvironment) {
 		if (dwCreationFlags & CREATE_UNICODE_ENVIRONMENT) {
 			pEnvW = strdupdb((LPCWSTR)lpEnvironment, MAX_PATH + 1);
 		} else {
-			int alen = strlendb((LPCSTR)lpEnvironment);
+			const size_t ansiLength = strlendb(
+				static_cast<LPCSTR>(lpEnvironment));
+			if (ansiLength > INT_MAX)
+				return NULL;
+			const int alen = static_cast<int>(ansiLength);
 			int wlen = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)lpEnvironment, alen, NULL, 0) + 1;
 			pEnvW = (LPWSTR)calloc(sizeof(WCHAR), wlen + MAX_PATH + 1);
 			if (pEnvW) {
@@ -1603,7 +1772,10 @@ void DebugOut(const WCHAR* szFormat, ...) {
 	va_list args;
 	va_start(args, szFormat);
 	WCHAR buffer[1024] = { 0 };
-	vswprintf(buffer, szFormat, args);
+	_vsnwprintf_s(
+		buffer, _countof(buffer), _TRUNCATE,
+		szFormat, args);
+	va_end(args);
 	std::wstring fullmsg = L"[MTCore] " + std::wstring(buffer);
 	OutputDebugString(fullmsg.c_str());
 #endif

@@ -101,7 +101,7 @@ LPTSTR WINAPI PathAddBackslash(LPTSTR pszPath)
 		return NULL;
 	}
 
-	int cch = _tcslen(pszPath);
+	const size_t cch = _tcslen(pszPath);
 	if (cch + 1 >= MAX_PATH) {
 		return NULL;
 	}
@@ -156,7 +156,11 @@ LPWSTR _StrDupExAtoW(LPCSTR pszMB, int cchMB /*= -1*/, LPWSTR pszStack /*= NULL*
 		return NULL;
 	}
 	if (cchMB == -1) {
-		cchMB = strlen(pszMB);
+		const size_t byteLength = strlen(pszMB);
+		if (byteLength > INT_MAX) {
+			return NULL;
+		}
+		cchMB = static_cast<int>(byteLength);
 	}
 	const int cchWC = MultiByteToWideChar(nACP, 0, pszMB, cchMB, NULL, 0);
 	if(cchWC < 0) {
