@@ -26,6 +26,29 @@ intentionally out of scope) and adds:
 - repeatable release packaging, local deployment with backup/rollback, and
   x86/x64 lifecycle, pixel-rendering and injection tests.
 
+Windows 11 settings and service
+------------------
+
+Run `YMacType.Settings.exe` to configure the active font substitutions and
+rendering parameters. The panel enumerates installed fonts, provides a live
+preview, applies the bundled macOS-style profile, restarts the injection
+service, and shows current coverage and recent diagnostic errors.
+
+The recommended installation is the automatic LocalSystem service mode. The
+legacy MacTuner, MacWiz, updater, benchmark, tray shortcuts and obsolete
+uninstaller are removed by the installer after being backed up. `MacTray.exe`
+is intentionally retained only as the headless x86/x64 injection service host;
+removing it would reduce coverage for applications that cannot be attached
+after startup.
+
+The default `YMacType-macOS.ini` profile substitutes common Windows UI and
+Chinese fonts with PingFang SC and uses grayscale, low-hinting rendering.
+Applications with protected processes, private renderers, GPU-only text, or
+incompatible sandboxes remain outside the safe interception boundary. Console
+hosts (Windows Terminal, OpenConsole, PowerShell, cmd and conhost) are excluded
+because their terminal rendering path cannot benefit from the GDI/DirectWrite
+hooks and would otherwise create misleading diagnostics.
+
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.
 

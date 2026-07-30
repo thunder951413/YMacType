@@ -11,6 +11,7 @@ artifacts/
 build-*.log
 build-release-*.log
 *.obj
+obj/
 tests/bin/
 tests/matrix-*/
 tests/*.txt

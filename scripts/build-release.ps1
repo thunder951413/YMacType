@@ -34,4 +34,15 @@ foreach ($platform in @('Win32', 'x64')) {
     }
 }
 
-Write-Host 'Release x86/x64 build completed without compiler warnings.'
+$controlPanel = Join-Path $Workspace 'control-panel\YMacType.Settings.csproj'
+& dotnet publish $controlPanel -c Release `
+    -p:DebugType=None `
+    -p:DebugSymbols=false `
+    --nologo
+if ($LASTEXITCODE -ne 0) {
+    throw 'YMacType.Settings release publish failed.'
+}
+
+Write-Host (
+    'Release x86/x64 core and YMacType.Settings builds completed ' +
+    'without compiler warnings.')

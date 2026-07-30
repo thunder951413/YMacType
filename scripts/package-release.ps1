@@ -16,6 +16,9 @@ $files = [ordered]@{
     'x64\Rel+Detours\MacType64.Core.dll' = 'MacType64.Core.dll'
     'Release\macloader.exe'              = 'MacLoader.exe'
     'x64\Release\macloader64.exe'        = 'MacLoader64.exe'
+    'control-panel\bin\Release\net48\publish\YMacType.Settings.exe' =
+        'YMacType.Settings.exe'
+    'profiles\YMacType-macOS.ini'         = 'YMacType-macOS.ini'
     'architecture\REFACTORING.md'         = 'REFACTORING.md'
 }
 
