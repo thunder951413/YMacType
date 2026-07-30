@@ -55,7 +55,10 @@ hosts (Windows Terminal, OpenConsole, PowerShell, cmd and conhost) are excluded
 because their terminal rendering path cannot benefit from the GDI/DirectWrite
 hooks and would otherwise create misleading diagnostics. Windows 11 Task
 Manager is also excluded because its WinUI text stack can retain incompatible
-glyph indices when a DirectWrite font face is substituted.
+glyph indices when a DirectWrite font face is substituted. Windows text-input
+hosts and WeType components are excluded for the same reason: IME candidate
+windows must preserve the exact glyph-index mapping supplied by their own font
+factory.
 
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.

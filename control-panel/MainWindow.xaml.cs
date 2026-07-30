@@ -432,7 +432,9 @@ public partial class MainWindow : Window
         _refreshingEffectiveApplications = true;
         try
         {
-            var processes = await Task.Run(ScanEffectiveApplications);
+            var excluded = LoadExcludedExecutables();
+            var processes = await Task.Run(
+                () => ScanEffectiveApplications(excluded));
             _effectiveProcesses = processes;
             ApplyEffectiveApplicationsFilter();
             _trayIcon.Text = processes.Count == 0
@@ -446,13 +448,38 @@ public partial class MainWindow : Window
         }
     }
 
-    private static List<EffectiveProcessInfo> ScanEffectiveApplications()
+    private static HashSet<string> LoadExcludedExecutables()
+    {
+        try
+        {
+            var ini = IniDocument.Load(ActiveProfile);
+            return new HashSet<string>(
+                ini.GetEntries("Exclude")
+                    .Concat(ini.GetEntries("UnloadDll")),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static List<EffectiveProcessInfo> ScanEffectiveApplications(
+        HashSet<string> excluded)
     {
         var result = new List<EffectiveProcessInfo>();
         foreach (var process in Process.GetProcesses())
         {
             try
             {
+                var executableName = process.ProcessName.EndsWith(
+                    ".exe",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? process.ProcessName
+                    : process.ProcessName + ".exe";
+                if (excluded.Contains(executableName))
+                    continue;
                 var core = process.Modules.Cast<ProcessModule>()
                     .FirstOrDefault(module =>
                         string.Equals(

@@ -187,7 +187,30 @@ try {
             'cmd.exe',
             'conhost.exe',
             'OpenConsole.exe',
-            'WindowsTerminal.exe'
+            'WindowsTerminal.exe',
+            'sc.exe',
+            'net.exe',
+            'net1.exe',
+            'Taskmgr.exe',
+            'TextInputHost.exe',
+            'ctfmon.exe',
+            'wetype_service.exe',
+            'wetype_server.exe',
+            'wetype_renderer.exe',
+            'wetype_update.exe'
+        )
+        $hardProcessExclusions = @(
+            'YMacType.Settings.exe',
+            'sc.exe',
+            'net.exe',
+            'net1.exe',
+            'Taskmgr.exe',
+            'TextInputHost.exe',
+            'ctfmon.exe',
+            'wetype_service.exe',
+            'wetype_server.exe',
+            'wetype_renderer.exe',
+            'wetype_update.exe'
         )
         if ($content -notmatch '(?im)^\s*\[UnloadDll\]\s*$') {
             $content += "`r`n[UnloadDll]`r`n"
@@ -199,6 +222,18 @@ try {
                 $content = $content -replace (
                     '(?im)^\s*\[UnloadDll\]\s*$'),
                     "[UnloadDll]`r`n$processName"
+            }
+        }
+        if ($content -notmatch '(?im)^\s*\[Exclude\]\s*$') {
+            $content += "`r`n[Exclude]`r`n"
+        }
+        foreach ($processName in $hardProcessExclusions) {
+            if ($content -notmatch (
+                "(?im)^\s*" + [regex]::Escape($processName) +
+                "\s*(?:;.*)?$")) {
+                $content = $content -replace (
+                    '(?im)^\s*\[Exclude\]\s*$'),
+                    "[Exclude]`r`n$processName"
             }
         }
         Set-Content -LiteralPath $ini -Value $content -Encoding unicode

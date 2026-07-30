@@ -85,6 +85,23 @@ internal sealed class IniDocument
         }
     }
 
+    public IReadOnlyList<string> GetEntries(string section)
+    {
+        var bounds = FindSection(section);
+        if (bounds.start < 0)
+            return Array.Empty<string>();
+        return _lines
+            .Skip(bounds.start + 1)
+            .Take(bounds.end - bounds.start - 1)
+            .Select(line => line.Trim())
+            .Where(line =>
+                line.Length > 0 &&
+                !line.StartsWith(";") &&
+                !line.StartsWith("#") &&
+                line.IndexOf('=') < 0)
+            .ToList();
+    }
+
     public void Save(string path)
     {
         var directory = Path.GetDirectoryName(path);
