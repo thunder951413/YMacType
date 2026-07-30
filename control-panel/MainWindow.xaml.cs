@@ -40,6 +40,7 @@ public partial class MainWindow : Window
 
     private bool _loaded;
     private bool _allowClose;
+    private bool _updatingTrayStartup;
     private bool _refreshingEffectiveApplications;
     private List<EffectiveProcessInfo> _effectiveProcesses =
         new List<EffectiveProcessInfo>();
@@ -117,6 +118,7 @@ public partial class MainWindow : Window
         _loaded = true;
         UpdatePreview();
         RefreshStatus();
+        RefreshTrayStartup();
         await RefreshEffectiveApplicationsAsync();
         _effectiveApplicationsTimer.Start();
     }
@@ -409,6 +411,60 @@ public partial class MainWindow : Window
     private void RefreshStatus_Click(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
+        RefreshTrayStartup();
+    }
+
+    private async void TrayStartup_Changed(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_loaded || _updatingTrayStartup)
+            return;
+        var enabled = TrayStartupCheckBox.IsChecked == true;
+        try
+        {
+            TrayStartupCheckBox.IsEnabled = false;
+            TrayStartupDescription.Text = enabled
+                ? "正在启用登录启动…"
+                : "正在关闭登录启动…";
+            await Task.Run(() =>
+                Installer.SetTrayStartupEnabled(enabled));
+            ResultText.Text = enabled
+                ? "已启用：下次登录后自动启动托盘面板。"
+                : "已关闭：下次登录后不再自动启动托盘面板。";
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                exception.Message,
+                "YMacType 自动启动",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            TrayStartupCheckBox.IsEnabled = true;
+            RefreshTrayStartup();
+            RefreshStatus();
+        }
+    }
+
+    private void RefreshTrayStartup()
+    {
+        var enabled = Installer.IsTrayStartupEnabled();
+        _updatingTrayStartup = true;
+        try
+        {
+            TrayStartupCheckBox.IsChecked = enabled;
+            TrayStartupDescription.Text = enabled
+                ? "已启用。核心字体服务随系统启动，设置面板和右下角托盘图标在登录后启动。"
+                : "已关闭托盘面板登录启动；核心字体服务仍会随系统自动启动并继续渲染。";
+        }
+        finally
+        {
+            _updatingTrayStartup = false;
+        }
     }
 
     private async void RefreshEffective_Click(
@@ -634,6 +690,7 @@ public partial class MainWindow : Window
 
         StatusText.Text =
             $"服务：{(running ? "Automatic / LocalSystem / Running" : "Stopped")}\n" +
+            $"托盘面板：{(Installer.IsTrayStartupEnabled() ? "登录时自动启动" : "不自动启动")}\n" +
             $"活动配置：{ActiveProfile}\n" +
             $"已覆盖进程：{covered}（{names} 类）\n" +
             $"最近 1 小时错误：{recentErrors}\n" +

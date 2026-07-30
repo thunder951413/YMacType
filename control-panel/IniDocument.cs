@@ -102,6 +102,30 @@ internal sealed class IniDocument
             .ToList();
     }
 
+    public void AddEntry(string section, string entry)
+    {
+        if (GetEntries(section).Any(item =>
+                item.Equals(entry, StringComparison.OrdinalIgnoreCase)))
+            return;
+        EnsureSection(section);
+        var bounds = FindSection(section);
+        _lines.Insert(bounds.start + 1, entry);
+    }
+
+    public void RemoveEntry(string section, string entry)
+    {
+        var bounds = FindSection(section);
+        if (bounds.start < 0)
+            return;
+        for (var index = bounds.end - 1; index > bounds.start; --index)
+        {
+            if (_lines[index].Trim().Equals(
+                    entry,
+                    StringComparison.OrdinalIgnoreCase))
+                _lines.RemoveAt(index);
+        }
+    }
+
     public void Save(string path)
     {
         var directory = Path.GetDirectoryName(path);
@@ -129,6 +153,15 @@ internal sealed class IniDocument
             line.TrimStart().StartsWith("[") &&
             line.TrimEnd().EndsWith("]"));
         return (start, end < 0 ? _lines.Count : end);
+    }
+
+    private void EnsureSection(string section)
+    {
+        if (FindSection(section).start >= 0)
+            return;
+        if (_lines.Count > 0 && _lines[_lines.Count - 1].Length != 0)
+            _lines.Add("");
+        _lines.Add($"[{section}]");
     }
 }
 }

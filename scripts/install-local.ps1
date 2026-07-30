@@ -192,11 +192,8 @@ try {
             'net.exe',
             'net1.exe',
             'Taskmgr.exe',
-            'TextInputHost.exe',
-            'ctfmon.exe',
             'wetype_service.exe',
             'wetype_server.exe',
-            'wetype_renderer.exe',
             'wetype_update.exe'
         )
         $hardProcessExclusions = @(
@@ -205,13 +202,21 @@ try {
             'net.exe',
             'net1.exe',
             'Taskmgr.exe',
-            'TextInputHost.exe',
-            'ctfmon.exe',
             'wetype_service.exe',
             'wetype_server.exe',
-            'wetype_renderer.exe',
             'wetype_update.exe'
         )
+        $fontSubstitutionExclusions = @(
+            'TextInputHost.exe',
+            'ctfmon.exe',
+            'wetype_renderer.exe'
+        )
+        foreach ($processName in $fontSubstitutionExclusions) {
+            $content = $content -replace (
+                "(?im)^\s*" + [regex]::Escape($processName) +
+                "\s*(?:;.*)?\r?\n?"),
+                ''
+        }
         if ($content -notmatch '(?im)^\s*\[UnloadDll\]\s*$') {
             $content += "`r`n[UnloadDll]`r`n"
         }
@@ -234,6 +239,18 @@ try {
                 $content = $content -replace (
                     '(?im)^\s*\[Exclude\]\s*$'),
                     "[Exclude]`r`n$processName"
+            }
+        }
+        if ($content -notmatch '(?im)^\s*\[ExcludeSub\]\s*$') {
+            $content += "`r`n[ExcludeSub]`r`n"
+        }
+        foreach ($processName in $fontSubstitutionExclusions) {
+            if ($content -notmatch (
+                "(?im)^\s*" + [regex]::Escape($processName) +
+                "\s*(?:;.*)?$")) {
+                $content = $content -replace (
+                    '(?im)^\s*\[ExcludeSub\]\s*$'),
+                    "[ExcludeSub]`r`n$processName"
             }
         }
         Set-Content -LiteralPath $ini -Value $content -Encoding unicode
@@ -260,25 +277,31 @@ try {
             Write-DeployLog "Removed obsolete component $name."
         }
     }
-    Get-ChildItem -LiteralPath $resolvedInstallDirectory -Force -File |
-        Where-Object Name -Like '*.ymactype-old-*' |
-        ForEach-Object {
-            Copy-Item -Force -LiteralPath $_.FullName -Destination (
-                Join-Path $backupRoot $_.Name)
-            try {
-                Remove-Item -Force -LiteralPath $_.FullName
-                Write-DeployLog "Removed retired file $($_.Name)."
-            }
-            catch {
-                if (-not [YMacTypeNativeMethods]::MoveFileEx(
-                    $_.FullName, $null, $moveFileDelayUntilReboot)) {
-                    throw
+    try {
+        Get-ChildItem -LiteralPath $resolvedInstallDirectory -Force -File |
+            Where-Object Name -Like '*.ymactype-old-*' |
+            ForEach-Object {
+                try {
+                    Remove-Item -Force -LiteralPath $_.FullName
+                    Write-DeployLog "Removed retired file $($_.Name)."
                 }
-                $rebootRequired = $true
-                Write-DeployLog (
-                    "Scheduled locked retired file $($_.Name) for deletion.")
+                catch {
+                    if ([YMacTypeNativeMethods]::MoveFileEx(
+                        $_.FullName, $null, $moveFileDelayUntilReboot)) {
+                        $rebootRequired = $true
+                        Write-DeployLog (
+                            "Scheduled locked retired file $($_.Name) " +
+                            'for deletion.')
+                    }
+                }
             }
-        }
+    }
+    catch {
+        $rebootRequired = $true
+        Write-DeployLog (
+            'Retired locked files could not be enumerated and will be ' +
+            'left for the next maintenance pass.')
+    }
     foreach ($name in @('updates', 'UX')) {
         $path = Join-Path $resolvedInstallDirectory $name
         if (Test-Path -LiteralPath $path) {
@@ -309,10 +332,10 @@ try {
         }
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut(
-        (Join-Path $startMenu 'YMacType 设置.lnk'))
+        (Join-Path $startMenu 'YMacType Settings.lnk'))
     $shortcut.TargetPath = Join-Path $InstallDirectory 'YMacType.Settings.exe'
     $shortcut.WorkingDirectory = $InstallDirectory
-    $shortcut.Description = 'YMacType 字体与渲染设置'
+    $shortcut.Description = 'YMacType font and rendering settings'
     $shortcut.IconLocation = "$($shortcut.TargetPath),0"
     $shortcut.Save()
 

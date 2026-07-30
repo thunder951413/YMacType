@@ -142,7 +142,8 @@
 
       <TabItem Header="状态">
         <StackPanel Margin="4,18,4,4">
-          <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="20">
+          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
+                  Padding="20" Margin="0,0,0,14">
             <StackPanel>
               <TextBlock Text="运行状态" FontSize="17" FontWeight="SemiBold"/>
               <TextBlock x:Name="StatusText" Margin="0,14,0,0"
@@ -153,6 +154,24 @@
                 <Button Content="打开日志" Click="OpenLogs_Click"/>
                 <Button Content="打开配置" Click="OpenProfile_Click"/>
               </StackPanel>
+            </StackPanel>
+          </Border>
+          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
+                  Padding="20">
+            <StackPanel>
+              <TextBlock Text="自动启动" FontSize="17"
+                         FontWeight="SemiBold"/>
+              <CheckBox x:Name="TrayStartupCheckBox"
+                        Margin="0,16,0,0"
+                        FontWeight="SemiBold"
+                        Content="登录 Windows 后自动启动 YMacType 托盘面板"
+                        Checked="TrayStartup_Changed"
+                        Unchecked="TrayStartup_Changed"/>
+              <TextBlock x:Name="TrayStartupDescription"
+                         Margin="24,8,0,0"
+                         Foreground="{StaticResource MutedBrush}"
+                         TextWrapping="Wrap"
+                         Text="核心字体服务始终随系统自动启动；此开关只控制设置面板和右下角托盘图标。"/>
             </StackPanel>
           </Border>
         </StackPanel>

@@ -38,7 +38,9 @@ The settings panel also runs as a single system-tray application after logon.
 Left-clicking its tray icon opens a live list of processes where YMacType is
 effective. The list refreshes automatically and can be searched by application
 name, PID or executable path. Closing the window hides it back to the tray;
-the tray menu provides an explicit exit action.
+the tray menu provides an explicit exit action. The Status page reports the
+Automatic LocalSystem service and provides a switch for enabling or disabling
+the settings-panel logon task without changing the core rendering service.
 
 The recommended installation is the automatic LocalSystem service mode. The
 legacy MacTuner, MacWiz, updater, benchmark, tray shortcuts and obsolete
@@ -56,9 +58,10 @@ because their terminal rendering path cannot benefit from the GDI/DirectWrite
 hooks and would otherwise create misleading diagnostics. Windows 11 Task
 Manager is also excluded because its WinUI text stack can retain incompatible
 glyph indices when a DirectWrite font face is substituted. Windows text-input
-hosts and WeType components are excluded for the same reason: IME candidate
-windows must preserve the exact glyph-index mapping supplied by their own font
-factory.
+hosts and the WeType renderer remain covered by MacType rasterization, but use
+the profile's `ExcludeSub` compatibility mode. This preserves the exact font
+face and glyph-index mapping supplied by the IME while retaining GDI and
+DirectWrite rendering improvements.
 
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.

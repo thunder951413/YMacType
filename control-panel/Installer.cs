@@ -12,6 +12,7 @@ namespace YMacType.Settings
 internal static class Installer
 {
     private const string InstallDirectory = @"C:\Program Files\MacType";
+    private const string TrayTaskName = "YMacType Settings Tray";
 
     private static readonly string[] ObsoleteFiles =
     {
@@ -131,13 +132,65 @@ internal static class Installer
         action.Arguments = "--tray";
         action.WorkingDirectory = InstallDirectory;
         root.RegisterTaskDefinition(
-            "YMacType Settings Tray",
+            TrayTaskName,
             task,
             6,
             null,
             null,
             3,
             null);
+    }
+
+    public static bool IsTrayStartupEnabled()
+    {
+        try
+        {
+            var schedulerType = Type.GetTypeFromProgID("Schedule.Service");
+            if (schedulerType == null)
+                return false;
+            dynamic scheduler = Activator.CreateInstance(schedulerType);
+            if (scheduler == null)
+                return false;
+            scheduler.Connect();
+            dynamic root = scheduler.GetFolder("\\");
+            dynamic task = root.GetTask(TrayTaskName);
+            if (task == null)
+                return false;
+            return Convert.ToBoolean(task.Enabled);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void SetTrayStartupEnabled(bool enabled)
+    {
+        EnsureAdministrator();
+        if (enabled)
+        {
+            ConfigureTrayStartup(SafeInstallPath("YMacType.Settings.exe"));
+            return;
+        }
+
+        try
+        {
+            var schedulerType = Type.GetTypeFromProgID("Schedule.Service")
+                ?? throw new InvalidOperationException(
+                    "无法连接任务计划服务。");
+            dynamic scheduler = Activator.CreateInstance(schedulerType);
+            if (scheduler == null)
+                throw new InvalidOperationException(
+                    "无法启动任务计划服务。");
+            scheduler.Connect();
+            dynamic root = scheduler.GetFolder("\\");
+            dynamic task = root.GetTask(TrayTaskName);
+            task.Enabled = false;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // A missing task is already equivalent to startup being disabled.
+        }
     }
 
     private static void StartTray(string panelPath)
@@ -210,6 +263,17 @@ internal static class Installer
             "General",
             "AlternativeFile",
             @"ini\YMacType-macOS.ini");
+        foreach (var executable in new[]
+                 {
+                     "TextInputHost.exe",
+                     "ctfmon.exe",
+                     "wetype_renderer.exe"
+                 })
+        {
+            document.RemoveEntry("Exclude", executable);
+            document.RemoveEntry("UnloadDll", executable);
+            document.AddEntry("ExcludeSub", executable);
+        }
         document.Save(mainConfig);
     }
 
