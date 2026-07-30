@@ -33,6 +33,7 @@
     </Grid>
 
     <TabControl x:Name="MainTabs" Grid.Row="2"
+                SelectionChanged="MainTabs_SelectionChanged"
                 Background="Transparent" BorderThickness="0">
       <TabItem Header="字体">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -175,6 +176,98 @@
             </StackPanel>
           </Border>
         </StackPanel>
+      </TabItem>
+
+      <TabItem x:Name="ApplicationRulesTab" Header="应用规则">
+        <Grid Margin="4,18,4,4">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
+                  Padding="18">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="搜索规则" FontWeight="SemiBold"
+                         VerticalAlignment="Center"/>
+              <TextBox x:Name="RuleSearchBox" Grid.Column="2"
+                       MinHeight="36" Padding="10,6"
+                       TextChanged="RuleSearch_TextChanged"
+                       ToolTip="按可执行文件名或规则类型搜索"/>
+            </Grid>
+          </Border>
+          <Border Grid.Row="2" Background="{StaticResource CardBrush}"
+                  CornerRadius="12" Padding="8">
+            <DataGrid x:Name="ApplicationRulesGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      BorderThickness="0"
+                      RowHeaderWidth="0"
+                      SelectionMode="Single"
+                      SelectionChanged="ApplicationRule_SelectionChanged">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="可执行文件"
+                                    Binding="{Binding ExecutableName}"
+                                    Width="2*"/>
+                <DataGridTextColumn Header="规则"
+                                    Binding="{Binding ModeLabel}"
+                                    Width="2*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </Border>
+          <Border Grid.Row="4" Background="{StaticResource CardBrush}"
+                  CornerRadius="12" Padding="18">
+            <StackPanel>
+              <TextBlock Text="添加或修改规则" FontSize="17"
+                         FontWeight="SemiBold"/>
+              <Grid Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="220"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="RuleExecutableBox"
+                         MinHeight="36" Padding="10,6"
+                         ToolTip="输入程序名，例如 chrome.exe"/>
+                <Button Grid.Column="1" Content="浏览…"
+                        Click="BrowseRuleExecutable_Click"/>
+                <ComboBox x:Name="RuleModeSelector" Grid.Column="2"
+                          MinHeight="36" Margin="10,0,0,0">
+                  <ComboBoxItem Content="完全屏蔽 YMacType"
+                                Tag="Blocked"/>
+                  <ComboBoxItem Content="只渲染，不替换字体"
+                                Tag="RenderOnly"/>
+                </ComboBox>
+              </Grid>
+              <DockPanel Margin="0,12,0,0">
+                <TextBlock Foreground="{StaticResource MutedBrush}"
+                           VerticalAlignment="Center" TextWrapping="Wrap">
+                  修改对新启动的程序立即生效；已运行程序需要完全退出后重新打开。
+                </TextBlock>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                  <Button Content="删除选中规则"
+                          Click="RemoveApplicationRule_Click"/>
+                  <Button Content="保存规则"
+                          Click="SaveApplicationRule_Click"
+                          Background="{StaticResource AccentBrush}"
+                          Foreground="White" FontWeight="SemiBold"/>
+                </StackPanel>
+              </DockPanel>
+            </StackPanel>
+          </Border>
+        </Grid>
       </TabItem>
 
       <TabItem x:Name="EffectiveApplicationsTab" Header="已生效应用">

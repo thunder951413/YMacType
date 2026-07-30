@@ -41,6 +41,9 @@ name, PID or executable path. Closing the window hides it back to the tray;
 the tray menu provides an explicit exit action. The Status page reports the
 Automatic LocalSystem service and provides a switch for enabling or disabling
 the settings-panel logon task without changing the core rendering service.
+The Application Rules page can search, add, edit and remove executable-level
+compatibility rules. Applications can either block YMacType completely or keep
+its rasterization while disabling font substitution.
 
 The recommended installation is the automatic LocalSystem service mode. The
 legacy MacTuner, MacWiz, updater, benchmark, tray shortcuts and obsolete

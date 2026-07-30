@@ -8,9 +8,9 @@
     <AssemblyName>YMacType.Settings</AssemblyName>
     <RootNamespace>YMacType.Settings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2026.730.5</Version>
-    <FileVersion>1.2026.730.5</FileVersion>
-    <AssemblyVersion>1.2026.730.5</AssemblyVersion>
+    <Version>1.2026.730.6</Version>
+    <FileVersion>1.2026.730.6</FileVersion>
+    <AssemblyVersion>1.2026.730.6</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />

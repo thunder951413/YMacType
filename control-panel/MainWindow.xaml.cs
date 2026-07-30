@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Threading;
+using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 namespace YMacType.Settings
@@ -42,10 +42,11 @@ public partial class MainWindow : Window
     private bool _allowClose;
     private bool _updatingTrayStartup;
     private bool _refreshingEffectiveApplications;
+    private List<ApplicationRuleInfo> _applicationRules =
+        new List<ApplicationRuleInfo>();
     private List<EffectiveProcessInfo> _effectiveProcesses =
         new List<EffectiveProcessInfo>();
     private readonly Forms.NotifyIcon _trayIcon;
-    private readonly DispatcherTimer _effectiveApplicationsTimer;
 
     public MainWindow()
     {
@@ -96,17 +97,11 @@ public partial class MainWindow : Window
                     new Action(ShowEffectiveApplications));
         };
 
-        _effectiveApplicationsTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(3)
-        };
-        _effectiveApplicationsTimer.Tick +=
-            async (_, __) => await RefreshEffectiveApplicationsAsync();
         Application.Current.SessionEnding +=
             (_, __) => _allowClose = true;
     }
 
-    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    private void Window_Loaded(object sender, RoutedEventArgs e)
     {
         var fonts = Fonts.SystemFontFamilies
             .Select(family => family.Source)
@@ -119,16 +114,33 @@ public partial class MainWindow : Window
         UpdatePreview();
         RefreshStatus();
         RefreshTrayStartup();
-        await RefreshEffectiveApplicationsAsync();
-        _effectiveApplicationsTimer.Start();
+        LoadApplicationRules();
     }
 
     public void ShowEffectiveApplications()
     {
         ShowAndActivate();
+        var alreadySelected = ReferenceEquals(
+            MainTabs.SelectedItem,
+            EffectiveApplicationsTab);
         MainTabs.SelectedItem = EffectiveApplicationsTab;
         EffectiveSearchBox.Focus();
-        if (_loaded)
+        if (_loaded && alreadySelected)
+            _ = RefreshEffectiveApplicationsAsync();
+    }
+
+    private void MainTabs_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (!_loaded || !ReferenceEquals(e.OriginalSource, MainTabs))
+            return;
+        if (ReferenceEquals(MainTabs.SelectedItem, ApplicationRulesTab))
+        {
+            LoadApplicationRules();
+            return;
+        }
+        if (ReferenceEquals(MainTabs.SelectedItem, EffectiveApplicationsTab))
             _ = RefreshEffectiveApplicationsAsync();
     }
 
@@ -161,7 +173,6 @@ public partial class MainWindow : Window
     private void ExitFromTray()
     {
         _allowClose = true;
-        _effectiveApplicationsTimer.Stop();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         Application.Current.Shutdown();
@@ -510,7 +521,7 @@ public partial class MainWindow : Window
         {
             var ini = IniDocument.Load(ActiveProfile);
             return new HashSet<string>(
-                ini.GetEntries("Exclude")
+                ini.GetEntries("ExcludeModule")
                     .Concat(ini.GetEntries("UnloadDll")),
                 StringComparer.OrdinalIgnoreCase);
         }
@@ -519,6 +530,236 @@ public partial class MainWindow : Window
             return new HashSet<string>(
                 StringComparer.OrdinalIgnoreCase);
         }
+    }
+
+    private void LoadApplicationRules()
+    {
+        try
+        {
+            var profile = IniDocument.Load(ActiveProfile);
+            var blocked = new HashSet<string>(
+                profile.GetEntries("UnloadDll")
+                    .Concat(profile.GetEntries("ExcludeModule")),
+                StringComparer.OrdinalIgnoreCase);
+            var renderOnly = new HashSet<string>(
+                profile.GetEntries("ExcludeSub"),
+                StringComparer.OrdinalIgnoreCase);
+            _applicationRules = blocked
+                .Select(name => new ApplicationRuleInfo
+                {
+                    ExecutableName = name,
+                    Mode = ApplicationRuleMode.Blocked
+                })
+                .Concat(renderOnly
+                    .Where(name => !blocked.Contains(name))
+                    .Select(name => new ApplicationRuleInfo
+                    {
+                        ExecutableName = name,
+                        Mode = ApplicationRuleMode.RenderOnly
+                    }))
+                .OrderBy(
+                    rule => rule.ExecutableName,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            ApplyApplicationRuleFilter();
+            if (RuleModeSelector.SelectedIndex < 0)
+                RuleModeSelector.SelectedIndex = 0;
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = $"无法读取应用规则：{exception.Message}";
+        }
+    }
+
+    private void RuleSearch_TextChanged(
+        object sender,
+        TextChangedEventArgs e)
+    {
+        if (_loaded)
+            ApplyApplicationRuleFilter();
+    }
+
+    private void ApplyApplicationRuleFilter()
+    {
+        var query = RuleSearchBox.Text.Trim();
+        ApplicationRulesGrid.ItemsSource = string.IsNullOrEmpty(query)
+            ? _applicationRules
+            : _applicationRules.Where(rule =>
+                    rule.ExecutableName.IndexOf(
+                        query,
+                        StringComparison.CurrentCultureIgnoreCase) >= 0 ||
+                    rule.ModeLabel.IndexOf(
+                        query,
+                        StringComparison.CurrentCultureIgnoreCase) >= 0)
+                .ToList();
+    }
+
+    private void ApplicationRule_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (!(ApplicationRulesGrid.SelectedItem is ApplicationRuleInfo rule))
+            return;
+        RuleExecutableBox.Text = rule.ExecutableName;
+        RuleModeSelector.SelectedIndex =
+            rule.Mode == ApplicationRuleMode.Blocked ? 0 : 1;
+    }
+
+    private void BrowseRuleExecutable_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择要配置的应用",
+            Filter = "Windows 应用程序 (*.exe)|*.exe",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) == true)
+            RuleExecutableBox.Text = Path.GetFileName(dialog.FileName);
+    }
+
+    private void SaveApplicationRule_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var executable = NormalizeExecutableName(
+            RuleExecutableBox.Text);
+        if (executable == null)
+            return;
+        var mode = SelectedTag(RuleModeSelector, "Blocked") ==
+                   "RenderOnly"
+            ? ApplicationRuleMode.RenderOnly
+            : ApplicationRuleMode.Blocked;
+        try
+        {
+            UpdateApplicationRule(executable, mode);
+            LoadApplicationRules();
+            SelectApplicationRule(executable);
+            ResultText.Text = mode == ApplicationRuleMode.Blocked
+                ? $"已完全屏蔽 {executable}；重新启动该程序后生效。"
+                : $"已将 {executable} 设为只渲染、不替换字体。";
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                exception.Message,
+                "YMacType 应用规则",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void RemoveApplicationRule_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var selected =
+            ApplicationRulesGrid.SelectedItem as ApplicationRuleInfo;
+        var executable = selected?.ExecutableName ??
+                         NormalizeExecutableName(
+                             RuleExecutableBox.Text,
+                             showError: false);
+        if (executable == null || executable.Length == 0)
+        {
+            MessageBox.Show(
+                this,
+                "请先选择要删除的应用规则。",
+                "YMacType 应用规则",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            RemoveApplicationRule(executable);
+            RuleExecutableBox.Clear();
+            LoadApplicationRules();
+            ResultText.Text =
+                $"已删除 {executable} 的规则；重新启动该程序后生效。";
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                exception.Message,
+                "YMacType 应用规则",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private static string? NormalizeExecutableName(
+        string value,
+        bool showError = true)
+    {
+        try
+        {
+            var executable = Path.GetFileName(value.Trim());
+            if (!string.IsNullOrEmpty(executable) &&
+                executable.EndsWith(
+                    ".exe",
+                    StringComparison.OrdinalIgnoreCase) &&
+                executable.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
+                return executable;
+        }
+        catch (ArgumentException)
+        {
+            // The validation message below also covers malformed paths.
+        }
+        if (showError)
+            MessageBox.Show(
+                "请输入有效的 .exe 文件名，或使用“浏览”选择程序。",
+                "YMacType 应用规则",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        return null;
+    }
+
+    private static void UpdateApplicationRule(
+        string executable,
+        ApplicationRuleMode mode)
+    {
+        foreach (var path in new[] { ActiveProfile, MainConfig })
+        {
+            var ini = IniDocument.Load(path);
+            ini.RemoveEntry("UnloadDll", executable);
+            ini.RemoveEntry("ExcludeModule", executable);
+            ini.RemoveEntry("ExcludeSub", executable);
+            ini.AddEntry(
+                mode == ApplicationRuleMode.Blocked
+                    ? "UnloadDll"
+                    : "ExcludeSub",
+                executable);
+            ini.Save(path);
+        }
+    }
+
+    private static void RemoveApplicationRule(string executable)
+    {
+        foreach (var path in new[] { ActiveProfile, MainConfig })
+        {
+            var ini = IniDocument.Load(path);
+            ini.RemoveEntry("UnloadDll", executable);
+            ini.RemoveEntry("ExcludeModule", executable);
+            ini.RemoveEntry("ExcludeSub", executable);
+            ini.Save(path);
+        }
+    }
+
+    private void SelectApplicationRule(string executable)
+    {
+        var selected = ApplicationRulesGrid.Items
+            .Cast<ApplicationRuleInfo>()
+            .FirstOrDefault(rule => rule.ExecutableName.Equals(
+                executable,
+                StringComparison.OrdinalIgnoreCase));
+        if (selected == null)
+            return;
+        ApplicationRulesGrid.SelectedItem = selected;
+        ApplicationRulesGrid.ScrollIntoView(selected);
     }
 
     private static List<EffectiveProcessInfo> ScanEffectiveApplications(
@@ -809,6 +1050,21 @@ public partial class MainWindow : Window
         public int ProcessId { get; set; }
         public string Architecture { get; set; } = "";
         public string Path { get; set; } = "";
+    }
+
+    private enum ApplicationRuleMode
+    {
+        Blocked,
+        RenderOnly
+    }
+
+    private sealed class ApplicationRuleInfo
+    {
+        public string ExecutableName { get; set; } = "";
+        public ApplicationRuleMode Mode { get; set; }
+        public string ModeLabel => Mode == ApplicationRuleMode.Blocked
+            ? "完全屏蔽 YMacType"
+            : "只渲染，不替换字体";
     }
 }
 }
