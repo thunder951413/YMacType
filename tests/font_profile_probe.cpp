@@ -33,7 +33,7 @@ int wmain(int argc, wchar_t** argv)
 	requested.lfClipPrecision = CLIP_DEFAULT_PRECIS;
 	requested.lfQuality = DEFAULT_QUALITY;
 	requested.lfPitchAndFamily = DEFAULT_PITCH;
-	wcscpy_s(requested.lfFaceName, L"Segoe UI");
+	wcscpy_s(requested.lfFaceName, L"Microsoft YaHei UI");
 	HFONT font = CreateFontIndirectW(&requested);
 	HGDIOBJ previous = SelectObject(dc, font);
 	wchar_t resolved[LF_FACESIZE] = {};
@@ -51,7 +51,7 @@ int wmain(int argc, wchar_t** argv)
 			reinterpret_cast<ULONG_PTR>(metrics->otmpFamilyName));
 	}
 	wprintf(
-		L"requested=Segoe UI reported=%ls actual=%ls\n",
+		L"requested=Microsoft YaHei UI reported=%ls actual=%ls\n",
 		resolved, actualFamily);
 
 	SelectObject(dc, previous);

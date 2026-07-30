@@ -43,8 +43,8 @@
                 <TextBlock Text="选择用于常见 Windows 中文字体和 UI 字体的替代字体。"
                            Foreground="{StaticResource MutedBrush}" Margin="0,4,0,12"/>
                 <ComboBox x:Name="FontSelector" SelectionChanged="PreviewChanged"/>
-                <CheckBox x:Name="ReplaceLatinFonts" IsChecked="True" Margin="0,14,0,0"
-                          Content="同时替换 Segoe UI、Arial、Tahoma 和 Helvetica"
+                <CheckBox x:Name="ReplaceLatinFonts" IsChecked="False" Margin="0,14,0,0"
+                          Content="实验性：同时替换拉丁 UI 字体（可能导致部分 DirectWrite 应用错字）"
                           Checked="PreviewChanged" Unchecked="PreviewChanged"/>
               </StackPanel>
             </Border>
@@ -148,6 +148,7 @@
                          FontFamily="Consolas" TextWrapping="Wrap"/>
               <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                 <Button Content="刷新状态" Click="RefreshStatus_Click"/>
+                <Button Content="启动 / 修复服务" Click="RepairService_Click"/>
                 <Button Content="打开日志" Click="OpenLogs_Click"/>
                 <Button Content="打开配置" Click="OpenProfile_Click"/>
               </StackPanel>
@@ -167,7 +168,7 @@
                  Text="修改会自动备份，随时可以恢复。"/>
       <StackPanel Grid.Column="1" Orientation="Horizontal">
         <Button Content="恢复 macOS 推荐值" Click="Defaults_Click"/>
-        <Button Content="应用并刷新服务" Click="Apply_Click"
+        <Button x:Name="ApplyButton" Content="应用设置" Click="Apply_Click"
                 Background="{StaticResource AccentBrush}" Foreground="White"
                 FontWeight="SemiBold"/>
       </StackPanel>

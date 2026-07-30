@@ -21,6 +21,8 @@ namespace YMacType.Settings
                         "YMacType 安装完成",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
+                    Shutdown(0);
+                    return;
                 }
                 catch (System.Exception exception)
                 {

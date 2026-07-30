@@ -132,11 +132,12 @@ public partial class MainWindow : Window
         try
         {
             ResultText.Text = "正在备份并应用设置…";
-            IsEnabled = false;
+            ApplyButton.IsEnabled = false;
             var values = CaptureValues();
             await Task.Run(() => ApplyProfile(values));
             ReloadCurrentProcess();
-            ResultText.Text = "设置已应用；新启动的程序会立即使用，旧程序请重新打开。";
+            ResultText.Text =
+                "设置已应用；服务无需重启。新程序立即生效，旧程序请重新打开。";
             RefreshStatus();
         }
         catch (Exception exception)
@@ -148,7 +149,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            ApplyButton.IsEnabled = true;
         }
     }
 
@@ -217,17 +218,10 @@ public partial class MainWindow : Window
         ini.Save(ActiveProfile);
         EnsureMainProfilePointer();
 
-        RunSc("config MacType start= auto obj= LocalSystem");
-        RunSc("failure MacType reset= 86400 actions= restart/5000/restart/15000/restart/60000");
-        RunSc("failureflag MacType 1");
-        RunSc("stop MacType", allowFailure: true);
-        for (var attempt = 0; attempt != 30; ++attempt)
-        {
-            if (!ServiceRunning())
-                break;
-            System.Threading.Thread.Sleep(200);
-        }
-        RunSc("start MacType");
+        // New target processes read the profile during initialization. Restarting
+        // the injection service here can race with this elevated control process
+        // and its service-control children, so applying settings is deliberately
+        // a configuration-only operation.
     }
 
     private static void EnsureMainProfilePointer()
@@ -271,7 +265,12 @@ public partial class MainWindow : Window
             RedirectStandardOutput = true,
             RedirectStandardError = true
         }) ?? throw new InvalidOperationException("无法启动服务控制器。");
-        process.WaitForExit(15000);
+        if (!process.WaitForExit(15000))
+        {
+            process.Kill();
+            throw new TimeoutException(
+                $"服务控制超时：sc.exe {arguments}");
+        }
         if (!allowFailure && process.ExitCode != 0)
             throw new InvalidOperationException(
                 $"服务配置失败：sc.exe {arguments}\n" +
@@ -285,7 +284,7 @@ public partial class MainWindow : Window
             .FirstOrDefault(font =>
                 font.Equals("PingFang SC", StringComparison.OrdinalIgnoreCase))
             ?? FontSelector.SelectedItem;
-        ReplaceLatinFonts.IsChecked = true;
+        ReplaceLatinFonts.IsChecked = false;
         SelectTag(HintingSelector, "1");
         SelectTag(AntialiasSelector, "0");
         GammaSlider.Value = 1.2;
@@ -295,12 +294,54 @@ public partial class MainWindow : Window
         DwContrastSlider.Value = 0.8;
         PreviewSizeSlider.Value = 27;
         UpdatePreview();
-        ResultText.Text = "已恢复推荐值，点击“应用并刷新服务”保存。";
+        ResultText.Text = "已恢复安全推荐值，点击“应用设置”保存。";
     }
 
     private void RefreshStatus_Click(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
+    }
+
+    private async void RepairService_Click(object sender, RoutedEventArgs e)
+    {
+        var button = sender as Button;
+        try
+        {
+            if (button != null)
+                button.IsEnabled = false;
+            ResultText.Text = "正在检查并修复服务…";
+            await Task.Run(() =>
+            {
+                RunSc("config MacType start= auto obj= LocalSystem");
+                RunSc(
+                    "failure MacType reset= 86400 " +
+                    "actions= restart/5000/restart/15000/restart/60000");
+                RunSc("failureflag MacType 1");
+                if (!ServiceRunning())
+                    RunSc("start MacType");
+                for (var attempt = 0; attempt != 40; ++attempt)
+                {
+                    if (ServiceRunning())
+                        return;
+                    System.Threading.Thread.Sleep(250);
+                }
+                throw new TimeoutException("MacType 服务未能在 10 秒内进入运行状态。");
+            });
+            ResultText.Text = "服务已修复并正常运行。";
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "服务修复失败";
+            MessageBox.Show(
+                this, exception.Message, "YMacType 设置",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (button != null)
+                button.IsEnabled = true;
+            RefreshStatus();
+        }
     }
 
     private void RefreshStatus()

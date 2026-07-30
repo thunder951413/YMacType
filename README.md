@@ -47,7 +47,9 @@ Applications with protected processes, private renderers, GPU-only text, or
 incompatible sandboxes remain outside the safe interception boundary. Console
 hosts (Windows Terminal, OpenConsole, PowerShell, cmd and conhost) are excluded
 because their terminal rendering path cannot benefit from the GDI/DirectWrite
-hooks and would otherwise create misleading diagnostics.
+hooks and would otherwise create misleading diagnostics. Windows 11 Task
+Manager is also excluded because its WinUI text stack can retain incompatible
+glyph indices when a DirectWrite font face is substituted.
 
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.
