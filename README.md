@@ -31,8 +31,14 @@ Windows 11 settings and service
 
 Run `YMacType.Settings.exe` to configure the active font substitutions and
 rendering parameters. The panel enumerates installed fonts, provides a live
-preview, applies the bundled macOS-style profile, restarts the injection
-service, and shows current coverage and recent diagnostic errors.
+preview, applies the bundled macOS-style profile without restarting the
+injection service, and shows current coverage and recent diagnostic errors.
+
+The settings panel also runs as a single system-tray application after logon.
+Left-clicking its tray icon opens a live list of processes where YMacType is
+effective. The list refreshes automatically and can be searched by application
+name, PID or executable path. Closing the window hides it back to the tray;
+the tray menu provides an explicit exit action.
 
 The recommended installation is the automatic LocalSystem service mode. The
 legacy MacTuner, MacWiz, updater, benchmark, tray shortcuts and obsolete

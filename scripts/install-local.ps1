@@ -51,7 +51,7 @@ $payload = [ordered]@{
     (Join-Path $Workspace 'x64\Release\macloader64.exe') =
         (Join-Path $InstallDirectory 'MacLoader64.exe')
     (Join-Path $Workspace (
-        'control-panel\bin\Release\net48\publish\' +
+        'control-panel\bin\Release\net48\release-publish\' +
         'YMacType.Settings.exe')) =
         (Join-Path $InstallDirectory 'YMacType.Settings.exe')
     (Join-Path $Workspace 'profiles\YMacType-macOS.ini') =
@@ -313,6 +313,21 @@ try {
     (Get-Service -Name MacType).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
         [TimeSpan]::FromSeconds(30))
+    $trayExecutable = Join-Path $InstallDirectory 'YMacType.Settings.exe'
+    $trayTaskName = 'YMacType Settings Tray'
+    $trayUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $trayAction = New-ScheduledTaskAction -Execute $trayExecutable `
+        -Argument '--tray' -WorkingDirectory $InstallDirectory
+    $trayTrigger = New-ScheduledTaskTrigger -AtLogOn -User $trayUser
+    $trayPrincipal = New-ScheduledTaskPrincipal -UserId $trayUser `
+        -LogonType Interactive -RunLevel Highest
+    $traySettings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+        -ExecutionTimeLimit ([TimeSpan]::Zero)
+    Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction `
+        -Trigger $trayTrigger -Principal $trayPrincipal `
+        -Settings $traySettings -Force | Out-Null
+    Start-ScheduledTask -TaskName $trayTaskName
+    Write-DeployLog "Configured interactive tray task for $trayUser."
     Write-DeployLog "Deployment complete. Backup=$backupRoot"
     if ($rebootRequired) {
         Write-DeployLog (

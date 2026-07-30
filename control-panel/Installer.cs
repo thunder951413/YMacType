@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Principal;
 using Microsoft.Win32;
 
 namespace YMacType.Settings
@@ -78,20 +79,105 @@ internal static class Installer
         if (!Path.GetFullPath(source).Equals(
                 Path.GetFullPath(destination),
                 StringComparison.OrdinalIgnoreCase))
+        {
+            StopInstalledTray(destination);
             File.Copy(source, destination, true);
+        }
 
         InstallBundledProfile(source, backupRoot);
         ReplaceStartMenuShortcuts(destination, backupRoot);
         RemoveLegacyUninstallEntry(backupRoot);
         ConfigureService();
+        ConfigureTrayStartup(destination);
+        StartTray(destination);
 
         return
             $"新设置面板已安装。\n\n" +
             $"已删除旧组件：{removed} 个\n" +
             $"已清理失效的旧卸载入口\n" +
             $"服务模式：Automatic / LocalSystem\n" +
+            $"托盘面板：登录时自动启动\n" +
             $"备份位置：{backupRoot}\n\n" +
             "MacTray.exe 仅作为无界面的注入服务保留。";
+    }
+
+    private static void ConfigureTrayStartup(string panelPath)
+    {
+        var schedulerType = Type.GetTypeFromProgID("Schedule.Service")
+            ?? throw new InvalidOperationException("无法连接任务计划服务。");
+        dynamic scheduler = Activator.CreateInstance(schedulerType);
+        if (scheduler == null)
+            throw new InvalidOperationException("无法启动任务计划服务。");
+        scheduler.Connect();
+        dynamic root = scheduler.GetFolder("\\");
+        dynamic task = scheduler.NewTask(0);
+        task.RegistrationInfo.Description =
+            "Start the YMacType settings tray after interactive logon.";
+        task.Settings.Enabled = true;
+        task.Settings.StartWhenAvailable = true;
+        task.Settings.ExecutionTimeLimit = "PT0S";
+        task.Settings.MultipleInstances = 2;
+
+        var user = WindowsIdentity.GetCurrent().Name;
+        task.Principal.UserId = user;
+        task.Principal.LogonType = 3;
+        task.Principal.RunLevel = 1;
+
+        dynamic trigger = task.Triggers.Create(9);
+        trigger.UserId = user;
+        trigger.Enabled = true;
+        dynamic action = task.Actions.Create(0);
+        action.Path = panelPath;
+        action.Arguments = "--tray";
+        action.WorkingDirectory = InstallDirectory;
+        root.RegisterTaskDefinition(
+            "YMacType Settings Tray",
+            task,
+            6,
+            null,
+            null,
+            3,
+            null);
+    }
+
+    private static void StartTray(string panelPath)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = panelPath,
+            Arguments = "--tray",
+            WorkingDirectory = InstallDirectory,
+            UseShellExecute = true
+        });
+    }
+
+    private static void StopInstalledTray(string panelPath)
+    {
+        var currentProcessId = Process.GetCurrentProcess().Id;
+        foreach (var process in Process.GetProcessesByName(
+                     "YMacType.Settings"))
+        {
+            try
+            {
+                if (process.Id != currentProcessId &&
+                    string.Equals(
+                        process.MainModule?.FileName,
+                        panelPath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    process.Kill();
+                    process.WaitForExit(5000);
+                }
+            }
+            catch
+            {
+                // A stale higher-integrity tray will be replaced at next logon.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
     }
 
     private static void InstallBundledProfile(

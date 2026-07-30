@@ -8,11 +8,13 @@
     <AssemblyName>YMacType.Settings</AssemblyName>
     <RootNamespace>YMacType.Settings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2026.730.1</Version>
-    <FileVersion>1.2026.730.1</FileVersion>
-    <AssemblyVersion>1.2026.730.1</AssemblyVersion>
+    <Version>1.2026.730.2</Version>
+    <FileVersion>1.2026.730.2</FileVersion>
+    <AssemblyVersion>1.2026.730.2</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 </Project>

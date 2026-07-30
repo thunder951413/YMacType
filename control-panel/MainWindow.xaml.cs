@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -10,6 +11,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
+using Forms = System.Windows.Forms;
 
 namespace YMacType.Settings
 {
@@ -36,13 +39,73 @@ public partial class MainWindow : Window
     };
 
     private bool _loaded;
+    private bool _allowClose;
+    private bool _refreshingEffectiveApplications;
+    private List<EffectiveProcessInfo> _effectiveProcesses =
+        new List<EffectiveProcessInfo>();
+    private readonly Forms.NotifyIcon _trayIcon;
+    private readonly DispatcherTimer _effectiveApplicationsTimer;
 
     public MainWindow()
     {
         InitializeComponent();
+        var preferredIcon = Path.Combine(
+            InstallDirectory,
+            "MacTray.exe");
+        var executable = File.Exists(preferredIcon)
+            ? preferredIcon
+            : Process.GetCurrentProcess().MainModule?.FileName;
+        var icon = !string.IsNullOrEmpty(executable)
+            ? System.Drawing.Icon.ExtractAssociatedIcon(executable)
+            : null;
+        _trayIcon = new Forms.NotifyIcon
+        {
+            Icon = icon ?? System.Drawing.SystemIcons.Application,
+            Text = "YMacType 字体渲染",
+            Visible = true
+        };
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add(
+            "显示已生效应用",
+            null,
+            (_, __) => Dispatcher.BeginInvoke(
+                new Action(ShowEffectiveApplications)));
+        menu.Items.Add(
+            "打开设置",
+            null,
+            (_, __) => Dispatcher.BeginInvoke(
+                new Action(ShowSettings)));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(
+            "刷新应用列表",
+            null,
+            (_, __) => Dispatcher.BeginInvoke(
+                new Action(async () =>
+                    await RefreshEffectiveApplicationsAsync())));
+        menu.Items.Add(
+            "退出 YMacType 设置",
+            null,
+            (_, __) => Dispatcher.BeginInvoke(
+                new Action(ExitFromTray)));
+        _trayIcon.ContextMenuStrip = menu;
+        _trayIcon.MouseClick += (_, eventArgs) =>
+        {
+            if (eventArgs.Button == Forms.MouseButtons.Left)
+                Dispatcher.BeginInvoke(
+                    new Action(ShowEffectiveApplications));
+        };
+
+        _effectiveApplicationsTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(3)
+        };
+        _effectiveApplicationsTimer.Tick +=
+            async (_, __) => await RefreshEffectiveApplicationsAsync();
+        Application.Current.SessionEnding +=
+            (_, __) => _allowClose = true;
     }
 
-    private void Window_Loaded(object sender, RoutedEventArgs e)
+    private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         var fonts = Fonts.SystemFontFamilies
             .Select(family => family.Source)
@@ -54,6 +117,52 @@ public partial class MainWindow : Window
         _loaded = true;
         UpdatePreview();
         RefreshStatus();
+        await RefreshEffectiveApplicationsAsync();
+        _effectiveApplicationsTimer.Start();
+    }
+
+    public void ShowEffectiveApplications()
+    {
+        ShowAndActivate();
+        MainTabs.SelectedItem = EffectiveApplicationsTab;
+        EffectiveSearchBox.Focus();
+        if (_loaded)
+            _ = RefreshEffectiveApplicationsAsync();
+    }
+
+    private void ShowSettings()
+    {
+        ShowAndActivate();
+        MainTabs.SelectedIndex = 0;
+    }
+
+    private void ShowAndActivate()
+    {
+        if (!IsVisible)
+            Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+    }
+
+    private void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (_allowClose)
+            return;
+        e.Cancel = true;
+        Hide();
+        ResultText.Text = "设置面板已隐藏到系统托盘。";
+    }
+
+    private void ExitFromTray()
+    {
+        _allowClose = true;
+        _effectiveApplicationsTimer.Stop();
+        _trayIcon.Visible = false;
+        _trayIcon.Dispose();
+        Application.Current.Shutdown();
     }
 
     private void LoadProfile()
@@ -302,6 +411,124 @@ public partial class MainWindow : Window
         RefreshStatus();
     }
 
+    private async void RefreshEffective_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        await RefreshEffectiveApplicationsAsync();
+    }
+
+    private void EffectiveSearch_TextChanged(
+        object sender,
+        TextChangedEventArgs e)
+    {
+        ApplyEffectiveApplicationsFilter();
+    }
+
+    private async Task RefreshEffectiveApplicationsAsync()
+    {
+        if (_refreshingEffectiveApplications)
+            return;
+        _refreshingEffectiveApplications = true;
+        try
+        {
+            var processes = await Task.Run(ScanEffectiveApplications);
+            _effectiveProcesses = processes;
+            ApplyEffectiveApplicationsFilter();
+            _trayIcon.Text = processes.Count == 0
+                ? "YMacType · 暂无已生效应用"
+                : $"YMacType · {processes.Count} 个进程已生效";
+            RefreshStatus();
+        }
+        finally
+        {
+            _refreshingEffectiveApplications = false;
+        }
+    }
+
+    private static List<EffectiveProcessInfo> ScanEffectiveApplications()
+    {
+        var result = new List<EffectiveProcessInfo>();
+        foreach (var process in Process.GetProcesses())
+        {
+            try
+            {
+                var core = process.Modules.Cast<ProcessModule>()
+                    .FirstOrDefault(module =>
+                        string.Equals(
+                            module.ModuleName,
+                            "MacType.Core.dll",
+                            StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(
+                            module.ModuleName,
+                            "MacType64.Core.dll",
+                            StringComparison.OrdinalIgnoreCase));
+                if (core == null)
+                    continue;
+                string path;
+                try
+                {
+                    path = process.MainModule?.FileName ?? "";
+                }
+                catch
+                {
+                    path = "";
+                }
+                result.Add(new EffectiveProcessInfo
+                {
+                    Name = process.ProcessName,
+                    ProcessId = process.Id,
+                    Architecture = string.Equals(
+                        core.ModuleName,
+                        "MacType64.Core.dll",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? "x64"
+                        : "x86",
+                    Path = path
+                });
+            }
+            catch
+            {
+                // Protected and terminating processes may reject enumeration.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+        return result
+            .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.ProcessId)
+            .ToList();
+    }
+
+    private void ApplyEffectiveApplicationsFilter()
+    {
+        if (EffectiveApplicationsGrid == null ||
+            EffectiveSearchBox == null)
+            return;
+        var query = EffectiveSearchBox.Text.Trim();
+        var filtered = string.IsNullOrEmpty(query)
+            ? _effectiveProcesses
+            : _effectiveProcesses.Where(item =>
+                    item.Name.IndexOf(
+                        query,
+                        StringComparison.CurrentCultureIgnoreCase) >= 0 ||
+                    item.ProcessId.ToString(
+                        CultureInfo.InvariantCulture).IndexOf(
+                            query,
+                            StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.Path.IndexOf(
+                        query,
+                        StringComparison.CurrentCultureIgnoreCase) >= 0)
+                .ToList();
+        EffectiveApplicationsGrid.ItemsSource = filtered;
+        NoEffectiveApplicationsText.Visibility =
+            filtered.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
     private async void RepairService_Click(object sender, RoutedEventArgs e)
     {
         var button = sender as Button;
@@ -351,35 +578,11 @@ public partial class MainWindow : Window
         ServiceBadge.Foreground = new SolidColorBrush(
             (Color)ColorConverter.ConvertFromString(running ? "#147A43" : "#B42318"));
 
-        var covered = 0;
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var process in Process.GetProcesses())
-        {
-            try
-            {
-                if (process.Modules.Cast<ProcessModule>().Any(module =>
-                        string.Equals(
-                            module.ModuleName,
-                            "MacType.Core.dll",
-                            StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(
-                            module.ModuleName,
-                            "MacType64.Core.dll",
-                            StringComparison.OrdinalIgnoreCase)))
-                {
-                    ++covered;
-                    names.Add(process.ProcessName);
-                }
-            }
-            catch
-            {
-                // Protected processes are expected to reject module enumeration.
-            }
-            finally
-            {
-                process.Dispose();
-            }
-        }
+        var covered = _effectiveProcesses.Count;
+        var names = _effectiveProcesses
+            .Select(process => process.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
 
         var recentErrors = 0;
         if (Directory.Exists(LogDirectory))
@@ -405,7 +608,7 @@ public partial class MainWindow : Window
         StatusText.Text =
             $"服务：{(running ? "Automatic / LocalSystem / Running" : "Stopped")}\n" +
             $"活动配置：{ActiveProfile}\n" +
-            $"已覆盖进程：{covered}（{names.Count} 类）\n" +
+            $"已覆盖进程：{covered}（{names} 类）\n" +
             $"最近 1 小时错误：{recentErrors}\n" +
             $"日志目录：{LogDirectory}";
     }
@@ -514,6 +717,14 @@ public partial class MainWindow : Window
         public double Weight { get; set; }
         public double DirectWriteGamma { get; set; }
         public double DirectWriteContrast { get; set; }
+    }
+
+    private sealed class EffectiveProcessInfo
+    {
+        public string Name { get; set; } = "";
+        public int ProcessId { get; set; }
+        public string Architecture { get; set; } = "";
+        public string Path { get; set; } = "";
     }
 }
 }

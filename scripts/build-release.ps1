@@ -35,7 +35,10 @@ foreach ($platform in @('Win32', 'x64')) {
 }
 
 $controlPanel = Join-Path $Workspace 'control-panel\YMacType.Settings.csproj'
+$controlPanelPublish = Join-Path $Workspace (
+    'control-panel\bin\Release\net48\release-publish')
 & dotnet publish $controlPanel -c Release `
+    -o $controlPanelPublish `
     -p:DebugType=None `
     -p:DebugSymbols=false `
     --nologo

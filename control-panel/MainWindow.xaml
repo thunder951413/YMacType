@@ -5,7 +5,7 @@
         MinWidth="820" MinHeight="640"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded" Closing="Window_Closing">
   <Grid Margin="24">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -32,7 +32,8 @@
       </Border>
     </Grid>
 
-    <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0">
+    <TabControl x:Name="MainTabs" Grid.Row="2"
+                Background="Transparent" BorderThickness="0">
       <TabItem Header="字体">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="4,18,4,4">
@@ -155,6 +156,67 @@
             </StackPanel>
           </Border>
         </StackPanel>
+      </TabItem>
+
+      <TabItem x:Name="EffectiveApplicationsTab" Header="已生效应用">
+        <Grid Margin="4,18,4,4">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
+                  Padding="18">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="搜索" FontWeight="SemiBold"
+                         VerticalAlignment="Center"/>
+              <TextBox x:Name="EffectiveSearchBox"
+                       Grid.Column="2"
+                       MinHeight="36" Padding="10,6"
+                       TextChanged="EffectiveSearch_TextChanged"
+                       ToolTip="按应用名称、PID 或路径搜索"/>
+              <Button Grid.Column="3" Content="刷新"
+                      Click="RefreshEffective_Click"/>
+            </Grid>
+          </Border>
+          <Border Grid.Row="2" Background="{StaticResource CardBrush}"
+                  CornerRadius="12" Padding="8">
+            <Grid>
+              <DataGrid x:Name="EffectiveApplicationsGrid"
+                        AutoGenerateColumns="False"
+                        IsReadOnly="True"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        HeadersVisibility="Column"
+                        GridLinesVisibility="Horizontal"
+                        BorderThickness="0"
+                        RowHeaderWidth="0">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="应用" Binding="{Binding Name}"
+                                      Width="2*"/>
+                  <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}"
+                                      Width="90"/>
+                  <DataGridTextColumn Header="架构" Binding="{Binding Architecture}"
+                                      Width="80"/>
+                  <DataGridTextColumn Header="路径" Binding="{Binding Path}"
+                                      Width="3*"/>
+                </DataGrid.Columns>
+              </DataGrid>
+              <TextBlock x:Name="NoEffectiveApplicationsText"
+                         Text="没有找到已生效的应用"
+                         Foreground="{StaticResource MutedBrush}"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Visibility="Collapsed"/>
+            </Grid>
+          </Border>
+        </Grid>
       </TabItem>
     </TabControl>
 
