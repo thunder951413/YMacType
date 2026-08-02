@@ -72,6 +72,82 @@
         </ScrollViewer>
       </TabItem>
 
+      <TabItem Header="系统字体">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="4,18,4,4">
+            <Border Background="{StaticResource CardBrush}" CornerRadius="12"
+                    Padding="20" Margin="0,0,0,14">
+              <StackPanel>
+                <TextBlock Text="Windows 全局界面字体" FontSize="17"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="一次设置标题栏、菜单、消息框、状态栏和资源管理器图标文字使用的字体与字号。"
+                           Foreground="{StaticResource MutedBrush}"
+                           TextWrapping="Wrap" Margin="0,4,0,16"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="18"/>
+                    <ColumnDefinition Width="180"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="全局字体" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="SystemFontSelector"
+                              Margin="0,6,0,0"
+                              SelectionChanged="SystemFontPreviewChanged"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="字号（磅）" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="SystemFontSizeSelector"
+                              Margin="0,6,0,0"
+                              SelectionChanged="SystemFontPreviewChanged"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock x:Name="SystemFontStatusText"
+                           Margin="0,14,0,0"
+                           Foreground="{StaticResource MutedBrush}"
+                           TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+
+            <Border x:Name="SystemFontPreviewCard" Background="White"
+                    CornerRadius="12" Padding="24" MinHeight="190">
+              <StackPanel>
+                <TextBlock Text="系统字体预览" FontSize="17"
+                           FontWeight="SemiBold"/>
+                <TextBlock x:Name="SystemFontPreviewTitle"
+                           Text="文件、编辑、查看、帮助"
+                           FontSize="18" Margin="0,22,0,10"/>
+                <TextBlock x:Name="SystemFontPreviewBody"
+                           Text="这是 Windows 传统界面字体的全局预览。现代 WinUI、浏览器网页和自行绘制文字的程序可能不读取此设置。"
+                           TextWrapping="Wrap" FontSize="14"/>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#EEF4FF" CornerRadius="10" Padding="16"
+                    Margin="0,14,0,0">
+              <StackPanel>
+                <TextBlock Text="说明" FontWeight="SemiBold"
+                           Foreground="#315A9E"/>
+                <TextBlock Text="设置只作用于当前 Windows 用户的传统 Win32/WinForms 界面；Chrome、现代 WinUI 和游戏等自行绘制界面的程序不会被强制改字体。应用前会自动备份当前值，可随时恢复。"
+                           TextWrapping="Wrap" Foreground="#315A9E"
+                           Margin="0,6,0,0"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                            Margin="0,12,0,0">
+                  <Button x:Name="RestoreSystemFontButton"
+                          Content="恢复上次备份"
+                          Click="RestoreSystemFont_Click"/>
+                  <Button x:Name="ApplySystemFontButton"
+                          Content="应用到 Windows UI"
+                          Click="ApplySystemFont_Click"
+                          Background="{StaticResource AccentBrush}"
+                          Foreground="White" FontWeight="SemiBold"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <TabItem Header="渲染">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="4,18,4,4">

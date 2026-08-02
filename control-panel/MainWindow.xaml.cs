@@ -38,6 +38,9 @@ public partial class MainWindow : Window
         "Segoe UI", "Arial", "Tahoma", "Helvetica"
     };
 
+    private static readonly int[] SystemFontSizes =
+        Enumerable.Range(6, 43).ToArray();
+
     private bool _loaded;
     private bool _allowClose;
     private bool _updatingTrayStartup;
@@ -109,7 +112,10 @@ public partial class MainWindow : Window
             .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         FontSelector.ItemsSource = fonts;
+        SystemFontSelector.ItemsSource = fonts;
+        SystemFontSizeSelector.ItemsSource = SystemFontSizes;
         LoadProfile();
+        LoadSystemFontSettings();
         _loaded = true;
         UpdatePreview();
         RefreshStatus();
@@ -201,6 +207,161 @@ public partial class MainWindow : Window
             ini.Get("DirectWrite", "GammaValue", "1.15"), 1.15);
         DwContrastSlider.Value = Parse(
             ini.Get("DirectWrite", "Contrast", "0.8"), 0.8);
+    }
+
+    private void LoadSystemFontSettings()
+    {
+        var current = SystemFontSettings.ReadCurrent();
+        SystemFontSelector.SelectedItem = SystemFontSelector.Items
+            .Cast<string>()
+            .FirstOrDefault(item => item.Equals(
+                current.Family,
+                StringComparison.CurrentCultureIgnoreCase))
+            ?? SystemFontSelector.Items.Cast<string>().FirstOrDefault(item =>
+                item.Equals("Segoe UI", StringComparison.CurrentCultureIgnoreCase))
+            ?? SystemFontSelector.Items.Cast<string>().FirstOrDefault();
+
+        SystemFontSizeSelector.SelectedItem = SystemFontSizes
+            .OrderBy(size => Math.Abs(size - current.PointSize))
+            .FirstOrDefault();
+        UpdateSystemFontPreview();
+        SystemFontStatusText.Text =
+            $"当前 Windows 全局界面设置：{current.Family} / " +
+            $"{current.PointSize} 磅。修改后点击“应用到 Windows UI”。";
+    }
+
+    private void SystemFontPreviewChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_loaded)
+            UpdateSystemFontPreview();
+    }
+
+    private void UpdateSystemFontPreview()
+    {
+        var familyName = SystemFontSelector.SelectedItem as string;
+        if (!string.IsNullOrWhiteSpace(familyName))
+        {
+            try
+            {
+                var family = new FontFamily(familyName);
+                SystemFontPreviewTitle.FontFamily = family;
+                SystemFontPreviewBody.FontFamily = family;
+            }
+            catch
+            {
+                // Keep the current preview family if a font was unregistered.
+            }
+        }
+
+        var pointSize = GetSelectedSystemFontSize();
+        SystemFontPreviewTitle.FontSize = pointSize + 5;
+        SystemFontPreviewBody.FontSize = Math.Max(10, pointSize);
+    }
+
+    private int GetSelectedSystemFontSize()
+    {
+        if (SystemFontSizeSelector.SelectedItem is int size)
+            return size;
+        return int.TryParse(
+            Convert.ToString(SystemFontSizeSelector.SelectedItem,
+                CultureInfo.InvariantCulture),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var parsed)
+            ? Math.Max(6, Math.Min(48, parsed))
+            : 9;
+    }
+
+    private async void ApplySystemFont_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var family = SystemFontSelector.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(family))
+        {
+            MessageBox.Show(
+                this,
+                "请选择要应用的系统字体。",
+                "YMacType 系统字体",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var size = GetSelectedSystemFontSize();
+        try
+        {
+            ApplySystemFontButton.IsEnabled = false;
+            RestoreSystemFontButton.IsEnabled = false;
+            SystemFontStatusText.Text =
+                $"正在备份并应用 {family} / {size} 磅…";
+            var backupDirectory = await Task.Run(() =>
+                SystemFontSettings.Apply(family!, size));
+            SystemFontStatusText.Text =
+                $"已应用到 Windows 全局界面：{family} / {size} 磅。" +
+                "新打开的传统 Win32 程序会读取该设置。";
+            ResultText.Text =
+                "系统字体已应用；原设置已备份，可在“系统字体”页恢复。";
+            UpdateSystemFontPreview();
+            _ = backupDirectory;
+        }
+        catch (Exception exception)
+        {
+            SystemFontStatusText.Text = "系统字体应用失败。";
+            ResultText.Text = "系统字体应用失败。";
+            MessageBox.Show(
+                this,
+                exception.Message,
+                "YMacType 系统字体",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            ApplySystemFontButton.IsEnabled = true;
+            RestoreSystemFontButton.IsEnabled = true;
+        }
+    }
+
+    private async void RestoreSystemFont_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            ApplySystemFontButton.IsEnabled = false;
+            RestoreSystemFontButton.IsEnabled = false;
+            SystemFontStatusText.Text = "正在恢复最近一次系统字体备份…";
+            var backupDirectory = await Task.Run(() =>
+                SystemFontSettings.RestoreLatest());
+            if (backupDirectory == null)
+            {
+                SystemFontStatusText.Text = "没有找到可恢复的系统字体备份。";
+                ResultText.Text = "没有找到可恢复的系统字体备份。";
+                return;
+            }
+
+            LoadSystemFontSettings();
+            ResultText.Text = "已恢复最近一次应用前的 Windows 全局界面字体。";
+        }
+        catch (Exception exception)
+        {
+            SystemFontStatusText.Text = "系统字体恢复失败。";
+            ResultText.Text = "系统字体恢复失败。";
+            MessageBox.Show(
+                this,
+                exception.Message,
+                "YMacType 系统字体",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            ApplySystemFontButton.IsEnabled = true;
+            RestoreSystemFontButton.IsEnabled = true;
+        }
     }
 
     private void PreviewChanged(object sender, RoutedEventArgs e)
