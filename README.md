@@ -84,9 +84,11 @@ profile.
 
 `.github/workflows/build-release.yml` builds pinned FreeType, IniParser,
 wow64ext and Detours on a Windows runner, then the x86/x64 core, loaders
-and settings panel. Every push produces a downloadable build artifact;
-pushing a tag such as `v1.2026.1020.1` also publishes a GitHub release
-using `doc/release-notes/<tag>.md` as its description.
+and settings panel. Every push produces a downloadable build artifact.
+To release, bump `<Version>` in `control-panel/YMacType.Settings.csproj`,
+add `doc/release-notes/v<Version>.md` and push to `main`: the workflow
+creates the tag and the GitHub release with that file as its description.
+Pushing a `v*` tag directly also publishes a release.
 
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.

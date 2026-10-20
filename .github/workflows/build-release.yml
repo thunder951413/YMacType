@@ -1,8 +1,11 @@
 name: Build and release
 
 # Every push builds x86/x64 core, loaders and the settings panel on a Windows
-# runner. Pushing a tag such as v1.2026.1020.1 also publishes a GitHub release
-# with the packaged zip; release notes come from doc/release-notes/<tag>.md.
+# runner. A GitHub release is published when either
+#   - a tag such as v1.2026.1020.1 is pushed, or
+#   - main is pushed, the <Version> in control-panel/YMacType.Settings.csproj
+#     has no release yet, and doc/release-notes/v<Version>.md exists.
+# The release notes come from doc/release-notes/<tag>.md.
 
 on:
   push:
@@ -36,10 +39,24 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $version = "$env:INPUT_VERSION"
+          $publish = 'false'
           if ($env:REF_TYPE -eq 'tag') {
             $version = $env:REF_NAME.TrimStart('v')
+            $publish = 'true'
+          } elseif ($env:REF_NAME -eq 'main' -and -not $version) {
+            [xml]$project = Get-Content -Raw control-panel/YMacType.Settings.csproj
+            $candidate = ($project.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1).Trim()
+            $notes = "doc/release-notes/v$candidate.md"
+            gh release view "v$candidate" --repo '${{ github.repository }}' *> $null
+            $released = $LASTEXITCODE -eq 0
+            $global:LASTEXITCODE = 0
+            if ((Test-Path $notes) -and -not $released) {
+              $version = $candidate
+              $publish = 'true'
+            }
           }
           if (-not $version) {
             $version = '0.0.0.' + '${{ github.run_number }}'
@@ -48,7 +65,8 @@ jobs:
             throw "Version '$version' must look like 1.2026.1020.1"
           }
           "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Building $version"
+          "publish=$publish" >> $env:GITHUB_OUTPUT
+          Write-Host "Building $version (publish: $publish)"
 
       - name: Cache third-party libraries
         id: deps-cache
@@ -90,12 +108,12 @@ jobs:
           path: ${{ steps.package.outputs.archive }}
 
       - name: Publish GitHub release
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = 'v${{ steps.version.outputs.version }}'
           $notes = "doc/release-notes/$tag.md"
           $body = if (Test-Path $notes) { Get-Content -Raw -Encoding utf8 $notes } else { "YMacType $tag" }
           $body += "`n`nSHA-256: ``${{ steps.package.outputs.sha256 }}``"
@@ -108,7 +126,8 @@ jobs:
             gh release upload $tag $archive --clobber
             gh release edit $tag --notes-file $bodyFile
           } else {
+            # Creates the tag at this commit when it does not exist yet.
             gh release create $tag $archive `
-              --title "YMacType $tag" --notes-file $bodyFile --verify-tag
+              --title "YMacType $tag" --notes-file $bodyFile --target '${{ github.sha }}'
           }
           if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed.' }
