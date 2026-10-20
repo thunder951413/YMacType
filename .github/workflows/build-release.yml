@@ -8,7 +8,6 @@ on:
   push:
     branches: ['**']
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -33,10 +32,14 @@ jobs:
       - name: Resolve version
         id: version
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $version = '${{ github.event.inputs.version }}'
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            $version = '${{ github.ref_name }}'.TrimStart('v')
+          $version = "$env:INPUT_VERSION"
+          if ($env:REF_TYPE -eq 'tag') {
+            $version = $env:REF_NAME.TrimStart('v')
           }
           if (-not $version) {
             $version = '0.0.0.' + '${{ github.run_number }}'
@@ -52,7 +55,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps
-          key: deps-v143-${{ hashFiles('scripts/ci/build-deps.ps1') }}
+          key: deps-${{ runner.os }}-v143-${{ hashFiles('scripts/ci/build-deps.ps1') }}
 
       - name: Build third-party libraries
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -98,5 +101,14 @@ jobs:
           $body += "`n`nSHA-256: ``${{ steps.package.outputs.sha256 }}``"
           $bodyFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           Set-Content -Encoding utf8 -LiteralPath $bodyFile -Value $body
-          gh release create $tag '${{ steps.package.outputs.archive }}' `
-            --title "YMacType $tag" --notes-file $bodyFile --verify-tag
+          $archive = '${{ steps.package.outputs.archive }}'
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Re-run of an existing tag: refresh the asset and notes.
+            gh release upload $tag $archive --clobber
+            gh release edit $tag --notes-file $bodyFile
+          } else {
+            gh release create $tag $archive `
+              --title "YMacType $tag" --notes-file $bodyFile --verify-tag
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed.' }

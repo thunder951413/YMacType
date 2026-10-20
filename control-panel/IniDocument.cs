@@ -24,20 +24,39 @@ internal sealed class IniDocument
         _encoding = encoding;
     }
 
-    public static IniDocument Load(string path)
+    private static readonly Encoding Utf16LeWithBom =
+        new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
+
+    /// <param name="preferUtf16">
+    /// Write the file as UTF-16 LE. Used for MacType.ini, which legacy
+    /// components read through the Win32 profile API (UTF-16 or ANSI only).
+    /// </param>
+    public static IniDocument Load(string path, bool preferUtf16 = false)
     {
+        var target = preferUtf16 ? Utf16LeWithBom : Utf8WithBom;
         if (!File.Exists(path))
-            return new IniDocument(Array.Empty<string>(), Utf8WithBom);
+            return new IniDocument(Array.Empty<string>(), target);
         var bytes = File.ReadAllBytes(path);
         var encoding = DetectEncoding(bytes, out var preambleLength);
-        var text = encoding.GetString(
-            bytes, preambleLength, bytes.Length - preambleLength);
+        string text;
+        try
+        {
+            text = encoding.GetString(
+                bytes, preambleLength, bytes.Length - preambleLength);
+        }
+        catch (DecoderFallbackException)
+        {
+            // Not valid UTF-8: a legacy file in the system ANSI code page,
+            // which is exactly how the core reads BOM-less files.
+            text = Encoding.Default.GetString(bytes);
+        }
         var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
         if (lines.Count > 0 && lines[lines.Count - 1].Length == 0)
             lines.RemoveAt(lines.Count - 1);
+        // UTF-16 files keep UTF-16 (LE: big-endian is not read by the core).
         return new IniDocument(
             lines,
-            encoding is UnicodeEncoding ? encoding : Utf8WithBom);
+            encoding is UnicodeEncoding ? Utf16LeWithBom : target);
     }
 
     /// <summary>
@@ -49,7 +68,9 @@ internal sealed class IniDocument
         if (!File.Exists(path))
             return true;
         var bytes = File.ReadAllBytes(path);
-        DetectEncoding(bytes, out var preambleLength);
+        var encoding = DetectEncoding(bytes, out var preambleLength);
+        if (encoding is UnicodeEncoding && bytes[0] == 0xFE)
+            return false;   // UTF-16 BE is not understood by the core
         return preambleLength > 0 || bytes.All(value => value < 0x80);
     }
 
@@ -66,9 +87,15 @@ internal sealed class IniDocument
             preambleLength = 3;
             return Utf8WithBom;
         }
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+        {
+            preambleLength = 2;
+            return new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
+        }
         preambleLength = 0;
-        // BOM-less files written by older builds of this panel are UTF-8.
-        return new UTF8Encoding(false);
+        // BOM-less files written by older builds of this panel are UTF-8;
+        // decoding is strict so ANSI files fall back in Load.
+        return new UTF8Encoding(false, throwOnInvalidBytes: true);
     }
 
     public string Get(string section, string key, string fallback = "")

@@ -79,6 +79,7 @@ public partial class MainWindow : Window
     private bool _updatingTrayStartup;
     private bool _refreshingEffectiveApplications;
     private bool _effectiveScanned;
+    private bool _serviceRunning;
     private HashSet<string> _installedFonts =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly ObservableCollection<FontChainEntry> _chain =
@@ -160,7 +161,7 @@ public partial class MainWindow : Window
             return;
         RefreshChainEntries();
         UpdatePreview();
-        RefreshServiceBadge(ServiceRunning());
+        RefreshServiceBadge(_serviceRunning);
         RefreshHealth();
     }
 
@@ -813,9 +814,17 @@ public partial class MainWindow : Window
     {
         if (!File.Exists(MainConfig))
             throw new FileNotFoundException("找不到 MacType.ini，请重新运行安装程序。", MainConfig);
-        var ini = IniDocument.Load(MainConfig);
+        var ini = LoadConfig(MainConfig);
         ini.Set("General", "AlternativeFile", @"ini\YMacType-macOS.ini");
         ini.Save(MainConfig);
+    }
+
+    private static IniDocument LoadConfig(string path)
+    {
+        return IniDocument.Load(
+            path,
+            preferUtf16: string.Equals(
+                path, MainConfig, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void RunSc(string arguments, bool allowFailure = false)
@@ -860,14 +869,16 @@ public partial class MainWindow : Window
     private void RefreshHealth()
     {
         var items = new List<HealthItem>();
-        var running = ServiceRunning();
+        var running = _serviceRunning;
         items.Add(running
             ? HealthItem.Good("字体服务正在运行", "新打开的程序会自动加载 YMacType。")
             : HealthItem.Bad("字体服务没有运行",
                 "没有服务，所有程序都不会被处理。",
                 "启动服务", "service"));
 
-        var active = ActiveChainFont();
+        var savedChain = ParseChain(IniDocument.Load(ActiveProfile).Get(
+            "FontSubstitutes", "Microsoft YaHei", ""));
+        var active = savedChain.FirstOrDefault(_installedFonts.Contains);
         items.Add(active != null
             ? HealthItem.Good($"替换字体：{active}",
                 "程序请求微软雅黑、等线、宋体等中文字体时会改用它。")
@@ -903,9 +914,13 @@ public partial class MainWindow : Window
         var errors = _diagnostics.Count - warnings;
         items.Add(_diagnostics.Count == 0
             ? HealthItem.Good("最近 24 小时没有警告", "日志里没有需要处理的记录。")
-            : HealthItem.Warn($"最近 24 小时：{errors} 个错误，{warnings} 个警告",
-                _diagnostics.First().Summary,
-                "查看", "diagnostics"));
+            : errors > 0
+                ? HealthItem.Bad($"最近 24 小时：{errors} 个错误，{warnings} 个警告",
+                    _diagnostics.First(entry => !entry.IsWarning).Summary,
+                    "查看", "diagnostics")
+                : HealthItem.Warn($"最近 24 小时：{warnings} 个警告",
+                    _diagnostics.First().Summary,
+                    "查看", "diagnostics"));
 
         var codePage = ReadCodePage();
         if (codePage.Acp == "65001")
@@ -951,7 +966,7 @@ public partial class MainWindow : Window
                 if (!File.Exists(path) || IniDocument.HasSafeEncoding(path))
                     continue;
                 File.Copy(path, path + ".before-bom", true);
-                IniDocument.Load(path).Save(path);
+                LoadConfig(path).Save(path);
             }
             ResultText.Text = "编码已修复，原文件备份为 .before-bom。重新打开程序后生效。";
         }
@@ -1155,18 +1170,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private static ApplicationRuleMode? GetApplicationRuleMode(string executable)
-    {
-        var profile = IniDocument.Load(ActiveProfile);
-        bool Contains(string section) => profile.GetEntries(section).Any(entry =>
-            entry.Equals(executable, StringComparison.OrdinalIgnoreCase));
-        if (Contains("UnloadDll") || Contains("ExcludeModule"))
-            return ApplicationRuleMode.Blocked;
-        if (Contains("ExcludeSub"))
-            return ApplicationRuleMode.RenderOnly;
-        return null;
-    }
-
     private void RuleSearch_TextChanged(
         object sender,
         TextChangedEventArgs e)
@@ -1319,7 +1322,7 @@ public partial class MainWindow : Window
     {
         foreach (var path in new[] { ActiveProfile, MainConfig })
         {
-            var ini = IniDocument.Load(path);
+            var ini = LoadConfig(path);
             ini.RemoveEntry("UnloadDll", executable);
             ini.RemoveEntry("ExcludeModule", executable);
             ini.RemoveEntry("ExcludeSub", executable);
@@ -1336,7 +1339,7 @@ public partial class MainWindow : Window
     {
         foreach (var path in new[] { ActiveProfile, MainConfig })
         {
-            var ini = IniDocument.Load(path);
+            var ini = LoadConfig(path);
             ini.RemoveEntry("UnloadDll", executable);
             ini.RemoveEntry("ExcludeModule", executable);
             ini.RemoveEntry("ExcludeSub", executable);
@@ -1459,6 +1462,39 @@ public partial class MainWindow : Window
             AbExecutableBox.Text = picked;
     }
 
+    private static readonly string[] RuleSections =
+    {
+        "UnloadDll", "ExcludeModule", "ExcludeSub"
+    };
+
+    // Remembers exactly which rule sections an application was in, in both
+    // configuration files, so "恢复" puts it back the way it was.
+    private sealed class CompareState
+    {
+        public string Executable { get; set; } = "";
+        public string[] ProfileSections { get; set; } = Array.Empty<string>();
+        public string[] MainSections { get; set; } = Array.Empty<string>();
+    }
+
+    private static string[] CaptureSections(string path, string executable)
+    {
+        var ini = LoadConfig(path);
+        return RuleSections
+            .Where(section => ini.GetEntries(section).Any(entry =>
+                entry.Equals(executable, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+    }
+
+    private static void RestoreSections(string path, string executable, string[] sections)
+    {
+        var ini = LoadConfig(path);
+        foreach (var section in RuleSections)
+            ini.RemoveEntry(section, executable);
+        foreach (var section in sections)
+            ini.AddEntry(section, executable);
+        ini.Save(path);
+    }
+
     private void AbPause_Click(object sender, RoutedEventArgs e)
     {
         var executable = NormalizeExecutableName(AbExecutableBox.Text);
@@ -1467,23 +1503,28 @@ public partial class MainWindow : Window
         try
         {
             var state = ReadCompareState();
-            if (state != null && !state.Value.Executable.Equals(
+            if (state != null && !state.Executable.Equals(
                     executable, StringComparison.OrdinalIgnoreCase))
             {
-                ResultText.Text = $"正在对比 {state.Value.Executable}，先点“恢复”结束那一次对比。";
+                AbStatusText.Text = $"正在对比 {state.Executable}，先点“恢复”结束那一次对比。";
                 return;
             }
-            var previous = state != null
-                ? state.Value.Previous
-                : GetApplicationRuleMode(executable);
+            if (state == null)
+            {
+                WriteCompareState(new CompareState
+                {
+                    Executable = executable,
+                    ProfileSections = CaptureSections(ActiveProfile, executable),
+                    MainSections = CaptureSections(MainConfig, executable)
+                });
+            }
             UpdateApplicationRule(executable, ApplicationRuleMode.Blocked);
-            WriteCompareState(executable, previous);
             LoadApplicationRules();
             RefreshCompareState();
         }
         catch (Exception exception)
         {
-            ResultText.Text = "暂停失败：" + exception.Message;
+            AbStatusText.Text = "暂停失败：" + exception.Message;
         }
     }
 
@@ -1492,6 +1533,13 @@ public partial class MainWindow : Window
         var executable = NormalizeExecutableName(AbExecutableBox.Text);
         if (executable == null)
             return;
+        var state = ReadCompareState();
+        if (state != null && !state.Executable.Equals(
+                executable, StringComparison.OrdinalIgnoreCase))
+        {
+            AbStatusText.Text = $"正在对比 {state.Executable}，先点“恢复”结束那一次对比。";
+            return;
+        }
         try
         {
             UpdateApplicationRule(executable, ApplicationRuleMode.RenderOnly);
@@ -1503,66 +1551,68 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            ResultText.Text = "保存失败：" + exception.Message;
+            AbStatusText.Text = "保存失败：" + exception.Message;
         }
     }
 
     private void AbRestore_Click(object sender, RoutedEventArgs e)
     {
         var state = ReadCompareState();
-        var executable = state?.Executable ??
-                         NormalizeExecutableName(AbExecutableBox.Text, showError: false);
-        if (executable == null)
+        if (state == null)
         {
             AbStatusText.Text = "当前没有进行中的对比。";
+            RefreshCompareState();
             return;
         }
         try
         {
-            if (state?.Previous is ApplicationRuleMode previous)
-                UpdateApplicationRule(executable, previous);
-            else
-                RemoveApplicationRule(executable);
+            RestoreSections(ActiveProfile, state.Executable, state.ProfileSections);
+            RestoreSections(MainConfig, state.Executable, state.MainSections);
             ClearCompareState();
             LoadApplicationRules();
             RefreshCompareState();
-            AbStatusText.Text = $"{executable} 已恢复为对比前的设置。完全退出再打开后生效。";
+            AbStatusText.Text = $"{state.Executable} 已恢复为对比前的设置。完全退出再打开后生效。";
         }
         catch (Exception exception)
         {
-            ResultText.Text = "恢复失败：" + exception.Message;
+            AbStatusText.Text = "恢复失败：" + exception.Message;
         }
     }
 
     private void RefreshCompareState()
     {
         var state = ReadCompareState();
+        AbRestoreButton.IsEnabled = state != null;
         if (state == null)
         {
-            AbRestoreButton.IsEnabled = !string.IsNullOrWhiteSpace(AbExecutableBox.Text);
             if (string.IsNullOrEmpty(AbStatusText.Text))
                 AbStatusText.Text = "当前没有进行中的对比。";
             return;
         }
-        AbExecutableBox.Text = state.Value.Executable;
-        AbRestoreButton.IsEnabled = true;
+        AbExecutableBox.Text = state.Executable;
         AbStatusText.Text =
-            $"正在对比：{state.Value.Executable} 暂停处理中。完全退出它再打开，看乱码是否消失。";
+            $"正在对比：{state.Executable} 已暂停处理。完全退出它再打开，看乱码是否消失。";
     }
 
-    private static (string Executable, ApplicationRuleMode? Previous)? ReadCompareState()
+    private static CompareState? ReadCompareState()
     {
         try
         {
             if (!File.Exists(AbStateFile))
                 return null;
             var parts = File.ReadAllText(AbStateFile, Encoding.UTF8).Trim().Split('|');
-            if (parts.Length == 0 || parts[0].Length == 0)
+            if (parts.Length < 3 || parts[0].Length == 0)
                 return null;
-            ApplicationRuleMode? previous = null;
-            if (parts.Length > 1 && Enum.TryParse(parts[1], out ApplicationRuleMode mode))
-                previous = mode;
-            return (parts[0], previous);
+            string[] Split(string value) => value
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(section => RuleSections.Contains(section))
+                .ToArray();
+            return new CompareState
+            {
+                Executable = parts[0],
+                ProfileSections = Split(parts[1]),
+                MainSections = Split(parts[2])
+            };
         }
         catch
         {
@@ -1570,12 +1620,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void WriteCompareState(string executable, ApplicationRuleMode? previous)
+    private static void WriteCompareState(CompareState state)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(AbStateFile)!);
         File.WriteAllText(
             AbStateFile,
-            executable + "|" + (previous?.ToString() ?? "None"),
+            state.Executable + "|" +
+            string.Join(",", state.ProfileSections) + "|" +
+            string.Join(",", state.MainSections),
             Encoding.UTF8);
     }
 
@@ -1788,6 +1840,7 @@ public partial class MainWindow : Window
     private void RefreshStatus()
     {
         var running = ServiceRunning();
+        _serviceRunning = running;
         RefreshServiceBadge(running);
         var covered = _effectiveProcesses.Count;
         var names = _effectiveProcesses

@@ -1809,7 +1809,7 @@ bool SubstituteDWriteFont3(__out IDWriteFontFace3** fontFace3)
 	if (pSettings->CopyForceFont(lf, lf))
 	{
 		CComPtr<IDWriteFont> writefont;
-		if (FAILED(g_pGdiInterop->CreateFontFromLOGFONT(&lf, &writefont)))
+		if (FAILED(g_pGdiInterop->CreateFontFromLOGFONT(&lf, &writefont)) || !writefont)
 			return false;
 
 		CComPtr<IDWriteFontFace> fontFaceOut;
