@@ -66,6 +66,28 @@ the profile's `ExcludeSub` compatibility mode. This preserves the exact font
 face and glyph-index mapping supplied by the IME while retaining GDI and
 DirectWrite rendering improvements.
 
+### Font substitution chain and profile encoding
+
+`[FontSubstitutes]` targets may list several candidates separated by `|`,
+for example `Microsoft YaHei=PingFang SC|Source Han Sans SC|Noto Sans SC`.
+The first candidate installed on the machine is used. When none is
+installed the rule is skipped and a warning with `code=700` is written to
+the per-process log; the settings panel shows this on its Overview page.
+
+Profiles must be saved as UTF-8 **with BOM** (or UTF-16 LE with BOM). The
+core's INI parser decodes BOM-less files with the system ANSI code page,
+which corrupts Chinese font names and silently disables the matching
+rules. The settings panel always writes a BOM and can repair an existing
+profile.
+
+### Building on GitHub
+
+`.github/workflows/build-release.yml` builds pinned FreeType, IniParser,
+wow64ext and Detours on a Windows runner, then the x86/x64 core, loaders
+and settings panel. Every push produces a downloadable build artifact;
+pushing a tag such as `v1.2026.1020.1` also publishes a GitHub release
+using `doc/release-notes/<tag>.md` as its description.
+
 See [the architecture and compatibility notes](architecture/REFACTORING.md)
 for the exact interception and protected-process boundaries.
 

@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "diagnostics.h"
 #include "strtoken.h"
 #include <math.h>	//pow
 #include "supinfo.h"
@@ -1698,13 +1699,48 @@ CFontSubstitutesInfo::initini(const CFontSubstitutesIniArray& iniarray)
 	for (; it!=iniarray.end(); ++it) {
 		LPCTSTR inistr = it->c_str();
 		LPTSTR buf = _tcsdup(inistr);
+		if (!buf)
+			continue;
 		for (LPTSTR vp = buf; *vp; ++vp) {
 			if (*vp == _T('=')) {
 				*vp++ = 0;
 				CFontSubstituteData k;
-				CFontSubstituteData v;
-				if (k.init(buf) && v.init(vp)) {
-				if (FindKey(k) < 0 && k.m_bCharSet == v.m_bCharSet) Add(k, v);
+				if (!k.init(buf)) {
+					// The source family is not installed on this machine, so
+					// there is nothing for this rule to replace.
+					break;
+				}
+				// The target may list several candidates separated by '|'
+				// (for example "PingFang SC|Source Han Sans SC|Microsoft YaHei").
+				// The first installed candidate wins. Previously a single
+				// missing target silently disabled the whole rule.
+				const LPCTSTR configuredTarget = inistr + (vp - buf);
+				bool matched = false;
+				LPTSTR candidate = vp;
+				while (candidate && *candidate && !matched) {
+					LPTSTR next = _tcschr(candidate, _T('|'));
+					if (next)
+						*next++ = 0;
+					while (*candidate == _T(' ') || *candidate == _T('\t'))
+						++candidate;
+					LPTSTR tail = candidate + lstrlen(candidate);
+					while (tail > candidate && (tail[-1] == _T(' ') || tail[-1] == _T('\t')))
+						*--tail = 0;
+					CFontSubstituteData v;
+					if (*candidate && v.init(candidate) && k.m_bCharSet == v.m_bCharSet) {
+						if (FindKey(k) < 0)
+							Add(k, v);
+						matched = true;
+					}
+					candidate = next;
+				}
+				if (!matched) {
+					MacTypeLog(
+						MacTypeLogLevel::Warning,
+						MacTypeDiagnosticCode::FontSubstituteTargetMissing,
+						L"font substitution for \"%s\" skipped: no target font in \"%s\" is installed",
+						buf,
+						configuredTarget);
 				}
 /*					StringCchCopy(truefont.lfFaceName, LF_FACESIZE, buf);
 					truefont.lfCharSet=DEFAULT_CHARSET;
@@ -1721,6 +1757,7 @@ CFontSubstitutesInfo::initini(const CFontSubstitutesIniArray& iniarray)
 				if (m_mfontsub.find(buff)==m_mfontsub.end())
 					m_mfontsub[buff]=wstring(buff2);
 */
+				break;	// one rule per line; the value was tokenized in place
 			}
 		}
 
@@ -1734,6 +1771,12 @@ CFontSubstitutesInfo::init(int nFontSubstitutes, const CFontSubstitutesIniArray&
 	if (nFontSubstitutes >= SETTING_FONTSUBSTITUTE_SAFE) {
 		initini(iniarray);	// init substitution from ini array
 		initreg(); // add more substitutions from registry
+		MacTypeLog(
+			GetSize() > 0 ? MacTypeLogLevel::Info : MacTypeLogLevel::Warning,
+			MacTypeDiagnosticCode::FontSubstituteSummary,
+			L"font substitution: %d active rule(s) from %d configured line(s)",
+			GetSize(),
+			(int)iniarray.size());
 	}
 }
 

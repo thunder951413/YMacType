@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -10,6 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
@@ -26,6 +28,10 @@ public partial class MainWindow : Window
     private static readonly string LogDirectory =
         Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData), "MacType", "Logs");
+    private static readonly string AbStateFile =
+        Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.CommonApplicationData),
+            "MacType", "compare-state.txt");
 
     private static readonly string[] ChineseSources =
     {
@@ -38,22 +44,56 @@ public partial class MainWindow : Window
         "Segoe UI", "Arial", "Tahoma", "Helvetica"
     };
 
+    // Must match profiles/YMacType-macOS.ini.
+    private static readonly string[] DefaultChain =
+    {
+        "PingFang SC", "Source Han Sans SC", "Noto Sans SC",
+        "Noto Sans CJK SC", "HarmonyOS Sans SC", "MiSans"
+    };
+
     private static readonly int[] SystemFontSizes =
         Enumerable.Range(6, 43).ToArray();
+
+    private static readonly RecommendedFont[] RecommendedFonts =
+    {
+        new RecommendedFont("思源黑体 Source Han Sans SC",
+            new[] { "Source Han Sans SC", "思源黑体" },
+            "Adobe 与 Google 联合开发，SIL 开源许可，字重齐全。",
+            "https://github.com/adobe-fonts/source-han-sans/releases"),
+        new RecommendedFont("Noto Sans SC",
+            new[] { "Noto Sans SC", "Noto Sans CJK SC" },
+            "与思源黑体同源的 Google 版本，SIL 开源许可。",
+            "https://fonts.google.com/noto/specimen/Noto+Sans+SC"),
+        new RecommendedFont("HarmonyOS Sans SC",
+            new[] { "HarmonyOS Sans SC" },
+            "华为界面字体，笔画干净，可免费商用（需遵守其许可协议）。",
+            "https://developer.huawei.com/consumer/cn/design/resource/"),
+        new RecommendedFont("MiSans",
+            new[] { "MiSans" },
+            "小米界面字体，可免费商用（需遵守其许可协议）。",
+            "https://hyperos.mi.com/font/")
+    };
 
     private bool _loaded;
     private bool _allowClose;
     private bool _updatingTrayStartup;
     private bool _refreshingEffectiveApplications;
+    private bool _effectiveScanned;
+    private HashSet<string> _installedFonts =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private readonly ObservableCollection<FontChainEntry> _chain =
+        new ObservableCollection<FontChainEntry>();
     private List<ApplicationRuleInfo> _applicationRules =
         new List<ApplicationRuleInfo>();
     private List<EffectiveProcessInfo> _effectiveProcesses =
         new List<EffectiveProcessInfo>();
+    private List<DiagnosticEntry> _diagnostics = new List<DiagnosticEntry>();
     private readonly Forms.NotifyIcon _trayIcon;
 
     public MainWindow()
     {
         InitializeComponent();
+        FontChainList.ItemsSource = _chain;
         var preferredIcon = Path.Combine(
             InstallDirectory,
             "MacTray.exe");
@@ -104,23 +144,69 @@ public partial class MainWindow : Window
             (_, __) => _allowClose = true;
     }
 
+    // ------------------------------------------------------------------
+    // Window lifecycle and theme
+    // ------------------------------------------------------------------
+
+    private void Window_SourceInitialized(object sender, EventArgs e)
+    {
+        ApplyTitleBarTheme();
+    }
+
+    public void OnThemeChanged()
+    {
+        ApplyTitleBarTheme();
+        if (!_loaded)
+            return;
+        RefreshChainEntries();
+        UpdatePreview();
+        RefreshServiceBadge(ServiceRunning());
+        RefreshHealth();
+    }
+
+    private void ApplyTitleBarTheme()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+            return;
+        var dark = App.IsDarkTheme ? 1 : 0;
+        // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+); 19 on older builds.
+        if (DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int)) != 0)
+            DwmSetWindowAttribute(handle, 19, ref dark, sizeof(int));
+    }
+
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        var fonts = Fonts.SystemFontFamilies
-            .Select(family => family.Source)
-            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+        _installedFonts = EnumerateInstalledFonts();
+        FontSelector.ItemsSource = _installedFonts
             .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        FontSelector.ItemsSource = fonts;
-        SystemFontSelector.ItemsSource = fonts;
+        SystemFontSelector.ItemsSource = FontSelector.ItemsSource;
         SystemFontSizeSelector.ItemsSource = SystemFontSizes;
         LoadProfile();
         LoadSystemFontSettings();
+        RecommendedFontList.ItemsSource = RecommendedFonts
+            .Select(font => new
+            {
+                font.Name,
+                font.Note,
+                font.Url,
+                InstalledText = font.FamilyNames.Any(_installedFonts.Contains)
+                    ? "已安装"
+                    : ""
+            })
+            .ToList();
         _loaded = true;
         UpdatePreview();
         RefreshStatus();
         RefreshTrayStartup();
         LoadApplicationRules();
+        RefreshCodePage();
+        RefreshCompareState();
+        UpdateApplyBar();
+        RefreshHealth();
+        _ = RefreshEffectiveApplicationsAsync();
+        _ = RefreshDiagnosticsAsync();
     }
 
     public void ShowEffectiveApplications()
@@ -141,19 +227,35 @@ public partial class MainWindow : Window
     {
         if (!_loaded || !ReferenceEquals(e.OriginalSource, MainTabs))
             return;
-        if (ReferenceEquals(MainTabs.SelectedItem, ApplicationRulesTab))
-        {
+        UpdateApplyBar();
+        var selected = MainTabs.SelectedItem;
+        if (ReferenceEquals(selected, OverviewTab))
+            RefreshHealth();
+        else if (ReferenceEquals(selected, ApplicationRulesTab))
             LoadApplicationRules();
-            return;
-        }
-        if (ReferenceEquals(MainTabs.SelectedItem, EffectiveApplicationsTab))
+        else if (ReferenceEquals(selected, EffectiveApplicationsTab))
             _ = RefreshEffectiveApplicationsAsync();
+        else if (ReferenceEquals(selected, TroubleshootTab))
+        {
+            RefreshCodePage();
+            RefreshCompareState();
+            _ = RefreshDiagnosticsAsync();
+        }
+    }
+
+    private void UpdateApplyBar()
+    {
+        var editing = ReferenceEquals(MainTabs.SelectedItem, FontsTab) ||
+                      ReferenceEquals(MainTabs.SelectedItem, RenderTab);
+        ApplyButtons.Visibility = editing
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void ShowSettings()
     {
         ShowAndActivate();
-        MainTabs.SelectedIndex = 0;
+        MainTabs.SelectedItem = OverviewTab;
     }
 
     private void ShowAndActivate()
@@ -184,15 +286,171 @@ public partial class MainWindow : Window
         Application.Current.Shutdown();
     }
 
+    // ------------------------------------------------------------------
+    // Fonts
+    // ------------------------------------------------------------------
+
+    private static HashSet<string> EnumerateInstalledFonts()
+    {
+        // The core resolves names through GDI, WPF groups some families
+        // differently (and GDI+ cannot see CFF-based OpenType fonts such as
+        // Source Han Sans), so the union of both views is used.
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var family in Fonts.SystemFontFamilies)
+        {
+            if (!string.IsNullOrWhiteSpace(family.Source))
+                names.Add(family.Source);
+            foreach (var localized in family.FamilyNames.Values)
+            {
+                if (!string.IsNullOrWhiteSpace(localized))
+                    names.Add(localized);
+            }
+        }
+        try
+        {
+            using var collection = new System.Drawing.Text.InstalledFontCollection();
+            foreach (var family in collection.Families)
+                names.Add(family.Name);
+        }
+        catch
+        {
+            // GDI+ font enumeration is best effort.
+        }
+        return names;
+    }
+
+    private static List<string> ParseChain(string value)
+    {
+        return value
+            .Split('|')
+            .Select(part => part.Trim())
+            .Where(part => part.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void SetChain(IEnumerable<string> names)
+    {
+        _chain.Clear();
+        foreach (var name in names)
+            _chain.Add(new FontChainEntry { Name = name });
+        RefreshChainEntries();
+    }
+
+    private void RefreshChainEntries()
+    {
+        var activeFound = false;
+        for (var index = 0; index < _chain.Count; ++index)
+        {
+            var entry = _chain[index];
+            var installed = _installedFonts.Contains(entry.Name);
+            var active = installed && !activeFound;
+            activeFound |= active;
+            entry.Update(index + 1, installed, active);
+        }
+        FontChainWarning.Visibility = activeFound
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        FontChainList.Items.Refresh();
+        UpdateChainButtons();
+    }
+
+    private string? ActiveChainFont()
+    {
+        return _chain.FirstOrDefault(entry =>
+            _installedFonts.Contains(entry.Name))?.Name;
+    }
+
+    private void FontChainList_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        UpdateChainButtons();
+    }
+
+    private void UpdateChainButtons()
+    {
+        var index = FontChainList.SelectedIndex;
+        MoveUpButton.IsEnabled = index > 0;
+        MoveDownButton.IsEnabled = index >= 0 && index < _chain.Count - 1;
+        RemoveFontButton.IsEnabled = index >= 0 && _chain.Count > 1;
+    }
+
+    private void MoveFontUp_Click(object sender, RoutedEventArgs e)
+    {
+        MoveSelectedFont(-1);
+    }
+
+    private void MoveFontDown_Click(object sender, RoutedEventArgs e)
+    {
+        MoveSelectedFont(1);
+    }
+
+    private void MoveSelectedFont(int offset)
+    {
+        var index = FontChainList.SelectedIndex;
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= _chain.Count)
+            return;
+        _chain.Move(index, target);
+        RefreshChainEntries();
+        FontChainList.SelectedIndex = target;
+        UpdatePreview();
+    }
+
+    private void RemoveFont_Click(object sender, RoutedEventArgs e)
+    {
+        var index = FontChainList.SelectedIndex;
+        if (index < 0 || _chain.Count <= 1)
+            return;
+        _chain.RemoveAt(index);
+        RefreshChainEntries();
+        FontChainList.SelectedIndex = Math.Min(index, _chain.Count - 1);
+        UpdatePreview();
+    }
+
+    private void AddFont_Click(object sender, RoutedEventArgs e)
+    {
+        if (!(FontSelector.SelectedItem is string name))
+        {
+            ResultText.Text = "先在下拉框里选一个已安装的字体。";
+            return;
+        }
+        if (_chain.Any(entry => entry.Name.Equals(
+                name, StringComparison.OrdinalIgnoreCase)))
+        {
+            ResultText.Text = $"{name} 已经在链条里。";
+            return;
+        }
+        // A font picked on purpose goes to the top: that is almost always
+        // what someone choosing a font wants to see take effect.
+        _chain.Insert(0, new FontChainEntry { Name = name });
+        RefreshChainEntries();
+        FontChainList.SelectedIndex = 0;
+        UpdatePreview();
+        ResultText.Text = $"已把 {name} 放到链条第一位，点击“应用设置”保存。";
+    }
+
+    private void OpenUrl_Click(object sender, RoutedEventArgs e)
+    {
+        if (!((sender as FrameworkElement)?.Tag is string url))
+            return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = $"无法打开浏览器：{exception.Message}";
+        }
+    }
+
     private void LoadProfile()
     {
         var ini = IniDocument.Load(ActiveProfile);
-        var font = ini.Get("FontSubstitutes", "Segoe UI",
-            ini.Get("FontSubstitutes", "Microsoft YaHei", "PingFang SC"));
-        FontSelector.SelectedItem = FontSelector.Items.Cast<string>()
-            .FirstOrDefault(item =>
-                item.Equals(font, StringComparison.CurrentCultureIgnoreCase))
-            ?? "PingFang SC";
+        var chain = ParseChain(ini.Get("FontSubstitutes", "Microsoft YaHei",
+            ini.Get("FontSubstitutes", "Microsoft YaHei UI", "")));
+        SetChain(chain.Count > 0 ? chain : DefaultChain.ToList());
         ReplaceLatinFonts.IsChecked =
             !string.IsNullOrEmpty(ini.Get("FontSubstitutes", "Segoe UI"));
         SelectTag(HintingSelector, ini.Get("General", "HintingMode", "1"));
@@ -209,25 +467,26 @@ public partial class MainWindow : Window
             ini.Get("DirectWrite", "Contrast", "0.8"), 0.8);
     }
 
+    // ------------------------------------------------------------------
+    // Windows UI font (WindowMetrics)
+    // ------------------------------------------------------------------
+
     private void LoadSystemFontSettings()
     {
         var current = SystemFontSettings.ReadCurrent();
-        SystemFontSelector.SelectedItem = SystemFontSelector.Items
-            .Cast<string>()
-            .FirstOrDefault(item => item.Equals(
-                current.Family,
-                StringComparison.CurrentCultureIgnoreCase))
-            ?? SystemFontSelector.Items.Cast<string>().FirstOrDefault(item =>
-                item.Equals("Segoe UI", StringComparison.CurrentCultureIgnoreCase))
-            ?? SystemFontSelector.Items.Cast<string>().FirstOrDefault();
-
+        var fonts = SystemFontSelector.Items.Cast<string>().ToList();
+        SystemFontSelector.SelectedItem =
+            fonts.FirstOrDefault(item => item.Equals(
+                current.Family, StringComparison.CurrentCultureIgnoreCase))
+            ?? fonts.FirstOrDefault(item => item.Equals(
+                "Segoe UI", StringComparison.CurrentCultureIgnoreCase))
+            ?? fonts.FirstOrDefault();
         SystemFontSizeSelector.SelectedItem = SystemFontSizes
             .OrderBy(size => Math.Abs(size - current.PointSize))
             .FirstOrDefault();
         UpdateSystemFontPreview();
         SystemFontStatusText.Text =
-            $"当前 Windows 全局界面设置：{current.Family} / " +
-            $"{current.PointSize} 磅。修改后点击“应用到 Windows UI”。";
+            $"Windows 当前使用 {current.Family}，{current.PointSize} 磅。";
     }
 
     private void SystemFontPreviewChanged(
@@ -241,23 +500,28 @@ public partial class MainWindow : Window
     private void UpdateSystemFontPreview()
     {
         var familyName = SystemFontSelector.SelectedItem as string;
-        if (!string.IsNullOrWhiteSpace(familyName))
-        {
-            try
-            {
-                var family = new FontFamily(familyName);
-                SystemFontPreviewTitle.FontFamily = family;
-                SystemFontPreviewBody.FontFamily = family;
-            }
-            catch
-            {
-                // Keep the current preview family if a font was unregistered.
-            }
-        }
-
         var pointSize = GetSelectedSystemFontSize();
-        SystemFontPreviewTitle.FontSize = pointSize + 5;
-        SystemFontPreviewBody.FontSize = Math.Max(10, pointSize);
+        // Points to WPF device-independent pixels (1/96 inch).
+        var pixels = pointSize * 96.0 / 72.0;
+        foreach (var block in new[]
+                 {
+                     SystemFontPreviewTitle, SystemFontPreviewMenu,
+                     SystemFontPreviewBody, SystemFontPreviewStatus
+                 })
+        {
+            if (!string.IsNullOrWhiteSpace(familyName))
+            {
+                try
+                {
+                    block.FontFamily = new FontFamily(familyName);
+                }
+                catch
+                {
+                    // Keep the current preview family if a font was unregistered.
+                }
+            }
+            block.FontSize = pixels;
+        }
     }
 
     private int GetSelectedSystemFontSize()
@@ -281,12 +545,7 @@ public partial class MainWindow : Window
         var family = SystemFontSelector.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(family))
         {
-            MessageBox.Show(
-                this,
-                "请选择要应用的系统字体。",
-                "YMacType 系统字体",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            SystemFontStatusText.Text = "先选择一个字体。";
             return;
         }
 
@@ -295,28 +554,17 @@ public partial class MainWindow : Window
         {
             ApplySystemFontButton.IsEnabled = false;
             RestoreSystemFontButton.IsEnabled = false;
+            SystemFontStatusText.Text = $"正在备份并应用 {family}，{size} 磅…";
+            await Task.Run(() => SystemFontSettings.Apply(family!, size));
             SystemFontStatusText.Text =
-                $"正在备份并应用 {family} / {size} 磅…";
-            var backupDirectory = await Task.Run(() =>
-                SystemFontSettings.Apply(family!, size));
-            SystemFontStatusText.Text =
-                $"已应用到 Windows 全局界面：{family} / {size} 磅。" +
-                "新打开的传统 Win32 程序会读取该设置。";
-            ResultText.Text =
-                "系统字体已应用；原设置已备份，可在“系统字体”页恢复。";
+                $"已应用 {family}，{size} 磅。新打开的程序会使用新字体。";
+            ResultText.Text = "Windows 界面字体已应用，原设置已备份。";
             UpdateSystemFontPreview();
-            _ = backupDirectory;
         }
         catch (Exception exception)
         {
-            SystemFontStatusText.Text = "系统字体应用失败。";
-            ResultText.Text = "系统字体应用失败。";
-            MessageBox.Show(
-                this,
-                exception.Message,
-                "YMacType 系统字体",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            SystemFontStatusText.Text = "应用失败：" + exception.Message;
+            ResultText.Text = "Windows 界面字体应用失败。";
         }
         finally
         {
@@ -333,29 +581,20 @@ public partial class MainWindow : Window
         {
             ApplySystemFontButton.IsEnabled = false;
             RestoreSystemFontButton.IsEnabled = false;
-            SystemFontStatusText.Text = "正在恢复最近一次系统字体备份…";
+            SystemFontStatusText.Text = "正在恢复上次的设置…";
             var backupDirectory = await Task.Run(() =>
                 SystemFontSettings.RestoreLatest());
             if (backupDirectory == null)
             {
-                SystemFontStatusText.Text = "没有找到可恢复的系统字体备份。";
-                ResultText.Text = "没有找到可恢复的系统字体备份。";
+                SystemFontStatusText.Text = "没有可恢复的备份。还没有通过这里修改过 Windows 界面字体。";
                 return;
             }
-
             LoadSystemFontSettings();
-            ResultText.Text = "已恢复最近一次应用前的 Windows 全局界面字体。";
+            ResultText.Text = "已恢复修改前的 Windows 界面字体。";
         }
         catch (Exception exception)
         {
-            SystemFontStatusText.Text = "系统字体恢复失败。";
-            ResultText.Text = "系统字体恢复失败。";
-            MessageBox.Show(
-                this,
-                exception.Message,
-                "YMacType 系统字体",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            SystemFontStatusText.Text = "恢复失败：" + exception.Message;
         }
         finally
         {
@@ -372,42 +611,100 @@ public partial class MainWindow : Window
 
     private void UpdatePreview()
     {
-        var familyName = FontSelector.SelectedItem as string ?? "PingFang SC";
+        var installed = _chain
+            .Where(entry => _installedFonts.Contains(entry.Name))
+            .Select(entry => entry.Name)
+            .ToList();
+        // WPF resolves a comma-separated family list the same way the core
+        // walks the chain: the first installed family wins.
+        var familyList = installed.Count > 0
+            ? string.Join(", ", installed)
+            : "Microsoft YaHei UI";
         try
         {
-            var family = new FontFamily(familyName);
+            var family = new FontFamily(familyList);
+            PreviewDisplay.FontFamily = family;
             PreviewChinese.FontFamily = family;
-            PreviewLatin.FontFamily = family;
+            PreviewLatin.FontFamily = ReplaceLatinFonts.IsChecked == true
+                ? family
+                : new FontFamily("Segoe UI, " + familyList);
+            PreviewUi.FontFamily = family;
         }
         catch
         {
             // Keep the current preview family if a malformed font is registered.
         }
 
-        PreviewChinese.FontSize = PreviewSizeSlider.Value;
-        PreviewLatin.FontSize = Math.Max(13, PreviewSizeSlider.Value - 7);
+        ResolvedFontText.Text = installed.Count > 0
+            ? $"样张字体：{installed[0]}（链条中第 {_chain.ToList().FindIndex(entry => entry.Name.Equals(installed[0], StringComparison.OrdinalIgnoreCase)) + 1} 个）"
+            : "链条里没有已安装的字体，样张显示的是系统默认的微软雅黑。";
+
+        PreviewDisplay.FontSize = PreviewSizeSlider.Value;
         var visualWeight = Math.Max(
             250,
             Math.Min(
                 700,
                 400 + (WeightSlider.Value - 1.0) * 350));
-        PreviewChinese.FontWeight = FontWeight.FromOpenTypeWeight(
-            (int)visualWeight);
-        PreviewLatin.FontWeight = PreviewChinese.FontWeight;
+        var weight = FontWeight.FromOpenTypeWeight((int)visualWeight);
+        PreviewDisplay.FontWeight = weight;
+        PreviewChinese.FontWeight = weight;
+        PreviewLatin.FontWeight = weight;
+        PreviewUi.FontWeight = weight;
 
         var dark = DarkPreview.IsChecked == true;
         PreviewCard.Background = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(dark ? "#1C1D21" : "#FFFFFF"));
-        var foreground = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(dark ? "#F2F3F5" : "#172033"));
-        PreviewChinese.Foreground = foreground;
-        PreviewLatin.Foreground = foreground;
+            (Color)ColorConverter.ConvertFromString(dark ? "#1B1C1F" : "#FFFFFF"));
+        var ink = new SolidColorBrush(
+            (Color)ColorConverter.ConvertFromString(dark ? "#E9EAEC" : "#16181D"));
+        var muted = new SolidColorBrush(
+            (Color)ColorConverter.ConvertFromString(dark ? "#9CA1AA" : "#5F6672"));
+        PreviewDisplay.Foreground = ink;
+        PreviewChinese.Foreground = ink;
+        PreviewLatin.Foreground = ink;
+        PreviewUi.Foreground = muted;
 
         GammaValueText.Text = GammaSlider.Value.ToString("0.00");
         ContrastValueText.Text = ContrastSlider.Value.ToString("0.00");
         WeightValueText.Text = WeightSlider.Value.ToString("0.00");
         DwGammaValueText.Text = DwGammaSlider.Value.ToString("0.00");
         DwContrastValueText.Text = DwContrastSlider.Value.ToString("0.00");
+    }
+
+    private void Preset_Click(object sender, RoutedEventArgs e)
+    {
+        switch ((sender as FrameworkElement)?.Tag as string)
+        {
+            case "balanced":
+                ApplyPreset("2", "0", 1.4, 1.1, 1.0, 1.4, 1.0, "均衡");
+                break;
+            case "crisp":
+                ApplyPreset("0", "4", 1.6, 1.2, 0.95, 1.8, 1.2, "清晰锐利");
+                break;
+            default:
+                ApplyPreset("1", "0", 1.2, 1.0, 1.15, 1.15, 0.8, "macOS 风格");
+                break;
+        }
+    }
+
+    private void ApplyPreset(
+        string hinting,
+        string antialias,
+        double gamma,
+        double contrast,
+        double weight,
+        double dwGamma,
+        double dwContrast,
+        string name)
+    {
+        SelectTag(HintingSelector, hinting);
+        SelectTag(AntialiasSelector, antialias);
+        GammaSlider.Value = gamma;
+        ContrastSlider.Value = contrast;
+        WeightSlider.Value = weight;
+        DwGammaSlider.Value = dwGamma;
+        DwContrastSlider.Value = dwContrast;
+        UpdatePreview();
+        ResultText.Text = $"已载入“{name}”参数，点击“应用设置”保存。";
     }
 
     private async void Apply_Click(object sender, RoutedEventArgs e)
@@ -419,13 +716,15 @@ public partial class MainWindow : Window
             var values = CaptureValues();
             await Task.Run(() => ApplyProfile(values));
             ReloadCurrentProcess();
-            ResultText.Text =
-                "设置已应用；服务无需重启。新程序立即生效，旧程序请重新打开。";
+            ResultText.Text = values.ActiveFont == null
+                ? "已保存。注意：链条里没有已安装的字体，字体替换不会生效。"
+                : $"已保存，替换字体为 {values.ActiveFont}。新打开的程序立即生效，已打开的程序请重新启动。";
             RefreshStatus();
+            RefreshHealth();
         }
         catch (Exception exception)
         {
-            ResultText.Text = "应用失败";
+            ResultText.Text = "保存失败：" + exception.Message;
             MessageBox.Show(
                 this, exception.Message, "YMacType 设置",
                 MessageBoxButton.OK, MessageBoxImage.Error);
@@ -440,7 +739,8 @@ public partial class MainWindow : Window
     {
         return new ProfileValues
         {
-            Font = FontSelector.SelectedItem as string ?? "PingFang SC",
+            Chain = _chain.Select(entry => entry.Name).ToList(),
+            ActiveFont = ActiveChainFont(),
             ReplaceLatin = ReplaceLatinFonts.IsChecked == true,
             Hinting = SelectedTag(HintingSelector, "1"),
             Antialias = SelectedTag(AntialiasSelector, "0"),
@@ -487,7 +787,8 @@ public partial class MainWindow : Window
             values.Antialias == "0" ? "0.0" : "1.0");
         ini.Set("DirectWrite", "RenderingMode", "5");
 
-        var target = values.Font;
+        // The core accepts "A|B|C" and uses the first installed family.
+        var target = string.Join("|", values.Chain);
         foreach (var source in ChineseSources)
             ini.Set("FontSubstitutes", source, target);
         foreach (var source in LatinSources)
@@ -497,7 +798,8 @@ public partial class MainWindow : Window
             else
                 ini.Remove("FontSubstitutes", source);
         }
-        ini.Set("Individual", target, "1,0,0,0,0,1");
+        foreach (var family in values.Chain)
+            ini.Set("Individual", family, "1,0,0,0,0,1");
         ini.Save(ActiveProfile);
         EnsureMainProfilePointer();
 
@@ -509,30 +811,11 @@ public partial class MainWindow : Window
 
     private static void EnsureMainProfilePointer()
     {
-        var bytes = File.ReadAllBytes(MainConfig);
-        var utf16 = bytes.Length >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe;
-        var text = utf16
-            ? Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2)
-            : Encoding.UTF8.GetString(bytes);
-        var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
-        var index = lines.FindIndex(line =>
-            line.StartsWith("AlternativeFile=", StringComparison.OrdinalIgnoreCase));
-        if (index >= 0)
-            lines[index] = @"AlternativeFile=ini\YMacType-macOS.ini";
-        else
-        {
-            var general = lines.FindIndex(line =>
-                line.Trim().Equals("[General]", StringComparison.OrdinalIgnoreCase));
-            lines.Insert(general >= 0 ? general + 1 : 0,
-                @"AlternativeFile=ini\YMacType-macOS.ini");
-        }
-        var updated = string.Join("\r\n", lines);
-        var body = Encoding.Unicode.GetBytes(updated);
-        var preamble = Encoding.Unicode.GetPreamble();
-        var output = new byte[preamble.Length + body.Length];
-        Buffer.BlockCopy(preamble, 0, output, 0, preamble.Length);
-        Buffer.BlockCopy(body, 0, output, preamble.Length, body.Length);
-        File.WriteAllBytes(MainConfig, output);
+        if (!File.Exists(MainConfig))
+            throw new FileNotFoundException("找不到 MacType.ini，请重新运行安装程序。", MainConfig);
+        var ini = IniDocument.Load(MainConfig);
+        ini.Set("General", "AlternativeFile", @"ini\YMacType-macOS.ini");
+        ini.Save(MainConfig);
     }
 
     private static void RunSc(string arguments, bool allowFailure = false)
@@ -563,27 +846,129 @@ public partial class MainWindow : Window
 
     private void Defaults_Click(object sender, RoutedEventArgs e)
     {
-        FontSelector.SelectedItem = FontSelector.Items.Cast<string>()
-            .FirstOrDefault(font =>
-                font.Equals("PingFang SC", StringComparison.OrdinalIgnoreCase))
-            ?? FontSelector.SelectedItem;
+        SetChain(DefaultChain);
         ReplaceLatinFonts.IsChecked = false;
-        SelectTag(HintingSelector, "1");
-        SelectTag(AntialiasSelector, "0");
-        GammaSlider.Value = 1.2;
-        ContrastSlider.Value = 1.0;
-        WeightSlider.Value = 1.15;
-        DwGammaSlider.Value = 1.15;
-        DwContrastSlider.Value = 0.8;
-        PreviewSizeSlider.Value = 27;
-        UpdatePreview();
-        ResultText.Text = "已恢复安全推荐值，点击“应用设置”保存。";
+        PreviewSizeSlider.Value = 44;
+        ApplyPreset("1", "0", 1.2, 1.0, 1.15, 1.15, 0.8, "macOS 风格");
+        ResultText.Text = "已恢复推荐的字体链和渲染参数，点击“应用设置”保存。";
+    }
+
+    // ------------------------------------------------------------------
+    // Overview
+    // ------------------------------------------------------------------
+
+    private void RefreshHealth()
+    {
+        var items = new List<HealthItem>();
+        var running = ServiceRunning();
+        items.Add(running
+            ? HealthItem.Good("字体服务正在运行", "新打开的程序会自动加载 YMacType。")
+            : HealthItem.Bad("字体服务没有运行",
+                "没有服务，所有程序都不会被处理。",
+                "启动服务", "service"));
+
+        var active = ActiveChainFont();
+        items.Add(active != null
+            ? HealthItem.Good($"替换字体：{active}",
+                "程序请求微软雅黑、等线、宋体等中文字体时会改用它。")
+            : HealthItem.Warn("替换字体没有安装",
+                "字体链里的字体都没有安装，只有渲染效果会变化，字体不会被替换。",
+                "选择字体", "fonts"));
+
+        var encodingOk = IniDocument.HasSafeEncoding(ActiveProfile) &&
+                         IniDocument.HasSafeEncoding(MainConfig);
+        items.Add(encodingOk
+            ? HealthItem.Good("配置文件编码正确",
+                "核心能正确读取配置里的中文字体名。")
+            : HealthItem.Bad("配置文件缺少 BOM",
+                "核心会按 GBK 解读这个文件，中文字体名会变成乱码，相关规则失效。",
+                "修复编码", "encoding"));
+
+        if (_effectiveScanned)
+        {
+            var count = _effectiveProcesses.Count;
+            items.Add(count > 0
+                ? HealthItem.Good($"{count} 个进程已加载",
+                    "包括 " + string.Join("、", _effectiveProcesses
+                        .Select(process => process.Name)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(4)) + (count > 4 ? " 等" : "") + "。",
+                    "查看", "effective")
+                : HealthItem.Warn("还没有进程加载 YMacType",
+                    "服务启动之前打开的程序不会被处理，重新打开它们即可。",
+                    "查看", "effective"));
+        }
+
+        var warnings = _diagnostics.Count(entry => entry.IsWarning);
+        var errors = _diagnostics.Count - warnings;
+        items.Add(_diagnostics.Count == 0
+            ? HealthItem.Good("最近 24 小时没有警告", "日志里没有需要处理的记录。")
+            : HealthItem.Warn($"最近 24 小时：{errors} 个错误，{warnings} 个警告",
+                _diagnostics.First().Summary,
+                "查看", "diagnostics"));
+
+        var codePage = ReadCodePage();
+        if (codePage.Acp == "65001")
+            items.Add(HealthItem.Warn("系统已切换为 UTF-8 编码",
+                "老的中文程序（GBK 编码）会出现乱码。这和 YMacType 无关。",
+                "了解", "diagnostics"));
+        else if (codePage.Acp != "936" && codePage.Acp.Length > 0)
+            items.Add(HealthItem.Warn($"系统代码页为 {codePage.Acp}",
+                "非 Unicode 的中文程序会显示乱码。",
+                "了解", "diagnostics"));
+
+        HealthList.ItemsSource = items;
+    }
+
+    private async void HealthAction_Click(object sender, RoutedEventArgs e)
+    {
+        switch ((sender as FrameworkElement)?.Tag as string)
+        {
+            case "service":
+                await RepairServiceAsync(sender as Button);
+                break;
+            case "fonts":
+                MainTabs.SelectedItem = FontsTab;
+                break;
+            case "encoding":
+                FixProfileEncoding();
+                break;
+            case "effective":
+                MainTabs.SelectedItem = EffectiveApplicationsTab;
+                break;
+            case "diagnostics":
+                MainTabs.SelectedItem = TroubleshootTab;
+                break;
+        }
+    }
+
+    private void FixProfileEncoding()
+    {
+        try
+        {
+            foreach (var path in new[] { ActiveProfile, MainConfig })
+            {
+                if (!File.Exists(path) || IniDocument.HasSafeEncoding(path))
+                    continue;
+                File.Copy(path, path + ".before-bom", true);
+                IniDocument.Load(path).Save(path);
+            }
+            ResultText.Text = "编码已修复，原文件备份为 .before-bom。重新打开程序后生效。";
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "修复失败：" + exception.Message;
+        }
+        RefreshHealth();
     }
 
     private void RefreshStatus_Click(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
         RefreshTrayStartup();
+        RefreshHealth();
+        _ = RefreshEffectiveApplicationsAsync();
+        _ = RefreshDiagnosticsAsync();
     }
 
     private async void TrayStartup_Changed(
@@ -602,8 +987,8 @@ public partial class MainWindow : Window
             await Task.Run(() =>
                 Installer.SetTrayStartupEnabled(enabled));
             ResultText.Text = enabled
-                ? "已启用：下次登录后自动启动托盘面板。"
-                : "已关闭：下次登录后不再自动启动托盘面板。";
+                ? "已启用：下次登录后显示托盘图标。"
+                : "已关闭：下次登录后不再显示托盘图标。";
         }
         catch (Exception exception)
         {
@@ -630,14 +1015,18 @@ public partial class MainWindow : Window
         {
             TrayStartupCheckBox.IsChecked = enabled;
             TrayStartupDescription.Text = enabled
-                ? "已启用。核心字体服务随系统启动，设置面板和右下角托盘图标在登录后启动。"
-                : "已关闭托盘面板登录启动；核心字体服务仍会随系统自动启动并继续渲染。";
+                ? "登录后显示托盘图标。核心字体服务总是随系统启动，与这个开关无关。"
+                : "登录后不显示托盘图标。核心字体服务仍会随系统启动并继续工作。";
         }
         finally
         {
             _updatingTrayStartup = false;
         }
     }
+
+    // ------------------------------------------------------------------
+    // Effective applications
+    // ------------------------------------------------------------------
 
     private async void RefreshEffective_Click(
         object sender,
@@ -664,15 +1053,45 @@ public partial class MainWindow : Window
             var processes = await Task.Run(
                 () => ScanEffectiveApplications(excluded));
             _effectiveProcesses = processes;
+            _effectiveScanned = true;
             ApplyEffectiveApplicationsFilter();
             _trayIcon.Text = processes.Count == 0
                 ? "YMacType · 暂无已生效应用"
                 : $"YMacType · {processes.Count} 个进程已生效";
             RefreshStatus();
+            if (ReferenceEquals(MainTabs.SelectedItem, OverviewTab))
+                RefreshHealth();
         }
         finally
         {
             _refreshingEffectiveApplications = false;
+        }
+    }
+
+    private void QuickRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (!(EffectiveApplicationsGrid.SelectedItem is EffectiveProcessInfo process))
+        {
+            ResultText.Text = "先在列表里选中一个程序。";
+            return;
+        }
+        var executable = process.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? process.Name
+            : process.Name + ".exe";
+        var mode = ((sender as FrameworkElement)?.Tag as string) == "RenderOnly"
+            ? ApplicationRuleMode.RenderOnly
+            : ApplicationRuleMode.Blocked;
+        try
+        {
+            UpdateApplicationRule(executable, mode);
+            LoadApplicationRules();
+            ResultText.Text = mode == ApplicationRuleMode.Blocked
+                ? $"{executable} 以后不再被处理。完全退出它再打开后生效。"
+                : $"{executable} 改为只渲染、不替换字体。完全退出它再打开后生效。";
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "保存规则失败：" + exception.Message;
         }
     }
 
@@ -692,6 +1111,10 @@ public partial class MainWindow : Window
                 StringComparer.OrdinalIgnoreCase);
         }
     }
+
+    // ------------------------------------------------------------------
+    // Application rules
+    // ------------------------------------------------------------------
 
     private void LoadApplicationRules()
     {
@@ -732,6 +1155,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private static ApplicationRuleMode? GetApplicationRuleMode(string executable)
+    {
+        var profile = IniDocument.Load(ActiveProfile);
+        bool Contains(string section) => profile.GetEntries(section).Any(entry =>
+            entry.Equals(executable, StringComparison.OrdinalIgnoreCase));
+        if (Contains("UnloadDll") || Contains("ExcludeModule"))
+            return ApplicationRuleMode.Blocked;
+        if (Contains("ExcludeSub"))
+            return ApplicationRuleMode.RenderOnly;
+        return null;
+    }
+
     private void RuleSearch_TextChanged(
         object sender,
         TextChangedEventArgs e)
@@ -770,15 +1205,23 @@ public partial class MainWindow : Window
         object sender,
         RoutedEventArgs e)
     {
+        var picked = PickExecutable();
+        if (picked != null)
+            RuleExecutableBox.Text = picked;
+    }
+
+    private string? PickExecutable()
+    {
         var dialog = new OpenFileDialog
         {
-            Title = "选择要配置的应用",
-            Filter = "Windows 应用程序 (*.exe)|*.exe",
+            Title = "选择程序",
+            Filter = "Windows 程序 (*.exe)|*.exe",
             CheckFileExists = true,
             Multiselect = false
         };
-        if (dialog.ShowDialog(this) == true)
-            RuleExecutableBox.Text = Path.GetFileName(dialog.FileName);
+        return dialog.ShowDialog(this) == true
+            ? Path.GetFileName(dialog.FileName)
+            : null;
     }
 
     private void SaveApplicationRule_Click(
@@ -799,8 +1242,8 @@ public partial class MainWindow : Window
             LoadApplicationRules();
             SelectApplicationRule(executable);
             ResultText.Text = mode == ApplicationRuleMode.Blocked
-                ? $"已完全屏蔽 {executable}；重新启动该程序后生效。"
-                : $"已将 {executable} 设为只渲染、不替换字体。";
+                ? $"{executable} 以后不再被处理。完全退出它再打开后生效。"
+                : $"{executable} 改为只渲染、不替换字体。完全退出它再打开后生效。";
         }
         catch (Exception exception)
         {
@@ -825,12 +1268,7 @@ public partial class MainWindow : Window
                              showError: false);
         if (executable == null || executable.Length == 0)
         {
-            MessageBox.Show(
-                this,
-                "请先选择要删除的应用规则。",
-                "YMacType 应用规则",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            ResultText.Text = "先在列表里选中要删除的规则。";
             return;
         }
         try
@@ -839,7 +1277,7 @@ public partial class MainWindow : Window
             RuleExecutableBox.Clear();
             LoadApplicationRules();
             ResultText.Text =
-                $"已删除 {executable} 的规则；重新启动该程序后生效。";
+                $"已删除 {executable} 的规则。完全退出它再打开后生效。";
         }
         catch (Exception exception)
         {
@@ -852,7 +1290,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static string? NormalizeExecutableName(
+    private string? NormalizeExecutableName(
         string value,
         bool showError = true)
     {
@@ -871,11 +1309,7 @@ public partial class MainWindow : Window
             // The validation message below also covers malformed paths.
         }
         if (showError)
-            MessageBox.Show(
-                "请输入有效的 .exe 文件名，或使用“浏览”选择程序。",
-                "YMacType 应用规则",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            ResultText.Text = "请输入 .exe 程序名，例如 chrome.exe，或点“选择程序…”。";
         return null;
     }
 
@@ -1014,9 +1448,294 @@ public partial class MainWindow : Window
                 : Visibility.Collapsed;
     }
 
+    // ------------------------------------------------------------------
+    // Troubleshooting
+    // ------------------------------------------------------------------
+
+    private void BrowseAbExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = PickExecutable();
+        if (picked != null)
+            AbExecutableBox.Text = picked;
+    }
+
+    private void AbPause_Click(object sender, RoutedEventArgs e)
+    {
+        var executable = NormalizeExecutableName(AbExecutableBox.Text);
+        if (executable == null)
+            return;
+        try
+        {
+            var state = ReadCompareState();
+            if (state != null && !state.Value.Executable.Equals(
+                    executable, StringComparison.OrdinalIgnoreCase))
+            {
+                ResultText.Text = $"正在对比 {state.Value.Executable}，先点“恢复”结束那一次对比。";
+                return;
+            }
+            var previous = state != null
+                ? state.Value.Previous
+                : GetApplicationRuleMode(executable);
+            UpdateApplicationRule(executable, ApplicationRuleMode.Blocked);
+            WriteCompareState(executable, previous);
+            LoadApplicationRules();
+            RefreshCompareState();
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "暂停失败：" + exception.Message;
+        }
+    }
+
+    private void AbRenderOnly_Click(object sender, RoutedEventArgs e)
+    {
+        var executable = NormalizeExecutableName(AbExecutableBox.Text);
+        if (executable == null)
+            return;
+        try
+        {
+            UpdateApplicationRule(executable, ApplicationRuleMode.RenderOnly);
+            ClearCompareState();
+            LoadApplicationRules();
+            RefreshCompareState();
+            AbStatusText.Text =
+                $"{executable} 已改为只渲染、不替换字体。完全退出再打开，看文字是否正常。";
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "保存失败：" + exception.Message;
+        }
+    }
+
+    private void AbRestore_Click(object sender, RoutedEventArgs e)
+    {
+        var state = ReadCompareState();
+        var executable = state?.Executable ??
+                         NormalizeExecutableName(AbExecutableBox.Text, showError: false);
+        if (executable == null)
+        {
+            AbStatusText.Text = "当前没有进行中的对比。";
+            return;
+        }
+        try
+        {
+            if (state?.Previous is ApplicationRuleMode previous)
+                UpdateApplicationRule(executable, previous);
+            else
+                RemoveApplicationRule(executable);
+            ClearCompareState();
+            LoadApplicationRules();
+            RefreshCompareState();
+            AbStatusText.Text = $"{executable} 已恢复为对比前的设置。完全退出再打开后生效。";
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "恢复失败：" + exception.Message;
+        }
+    }
+
+    private void RefreshCompareState()
+    {
+        var state = ReadCompareState();
+        if (state == null)
+        {
+            AbRestoreButton.IsEnabled = !string.IsNullOrWhiteSpace(AbExecutableBox.Text);
+            if (string.IsNullOrEmpty(AbStatusText.Text))
+                AbStatusText.Text = "当前没有进行中的对比。";
+            return;
+        }
+        AbExecutableBox.Text = state.Value.Executable;
+        AbRestoreButton.IsEnabled = true;
+        AbStatusText.Text =
+            $"正在对比：{state.Value.Executable} 暂停处理中。完全退出它再打开，看乱码是否消失。";
+    }
+
+    private static (string Executable, ApplicationRuleMode? Previous)? ReadCompareState()
+    {
+        try
+        {
+            if (!File.Exists(AbStateFile))
+                return null;
+            var parts = File.ReadAllText(AbStateFile, Encoding.UTF8).Trim().Split('|');
+            if (parts.Length == 0 || parts[0].Length == 0)
+                return null;
+            ApplicationRuleMode? previous = null;
+            if (parts.Length > 1 && Enum.TryParse(parts[1], out ApplicationRuleMode mode))
+                previous = mode;
+            return (parts[0], previous);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void WriteCompareState(string executable, ApplicationRuleMode? previous)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(AbStateFile)!);
+        File.WriteAllText(
+            AbStateFile,
+            executable + "|" + (previous?.ToString() ?? "None"),
+            Encoding.UTF8);
+    }
+
+    private static void ClearCompareState()
+    {
+        if (File.Exists(AbStateFile))
+            File.Delete(AbStateFile);
+    }
+
+    private static (string Acp, string Oemcp) ReadCodePage()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Nls\CodePage");
+            return ((key?.GetValue("ACP") as string) ?? "",
+                (key?.GetValue("OEMCP") as string) ?? "");
+        }
+        catch
+        {
+            return ("", "");
+        }
+    }
+
+    private void RefreshCodePage()
+    {
+        var (acp, oemcp) = ReadCodePage();
+        CodePageText.Text = acp.Length == 0
+            ? "无法读取系统代码页。"
+            : $"非 Unicode 程序使用的代码页：{acp}（{DescribeCodePage(acp)}），控制台代码页：{oemcp}。";
+        CodePageAdvice.Text = acp switch
+        {
+            "65001" =>
+                "已开启“Beta 版：使用 Unicode UTF-8 提供全球语言支持”。新程序更好，但不少老的中文程序会把文字显示成“浣犲ソ”这样的乱码。遇到这种情况，在区域设置的“管理”页关闭该选项并重启。",
+            "936" =>
+                "老的中文程序可以正常显示。个别程序或文本文件按 UTF-8 保存却被当作 GBK 读取时会出现“锟斤拷”式乱码，需要在那个程序里改编码，改系统设置没有帮助。",
+            "" => "",
+            _ =>
+                "老的中文程序会显示乱码。在区域设置的“管理”页，把“非 Unicode 程序的语言”改为“中文(简体，中国)”并重启。"
+        };
+    }
+
+    private static string DescribeCodePage(string acp)
+    {
+        return acp switch
+        {
+            "936" => "简体中文 GBK",
+            "950" => "繁体中文 Big5",
+            "65001" => "UTF-8",
+            "1252" => "西欧",
+            "932" => "日文 Shift-JIS",
+            "949" => "韩文",
+            _ => "其他"
+        };
+    }
+
+    private void OpenRegionSettings_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("control.exe", "intl.cpl")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            ResultText.Text = "无法打开区域设置：" + exception.Message;
+        }
+    }
+
+    private async void RefreshDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshDiagnosticsAsync();
+    }
+
+    private async Task RefreshDiagnosticsAsync()
+    {
+        var entries = await Task.Run(() => ReadRecentDiagnostics());
+        _diagnostics = entries;
+        DiagnosticsGrid.ItemsSource = entries;
+        NoDiagnosticsText.Visibility = entries.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (ReferenceEquals(MainTabs.SelectedItem, OverviewTab))
+            RefreshHealth();
+    }
+
+    private static List<DiagnosticEntry> ReadRecentDiagnostics()
+    {
+        var result = new List<DiagnosticEntry>();
+        if (!Directory.Exists(LogDirectory))
+            return result;
+        var since = DateTime.Now.AddHours(-24);
+        foreach (var file in Directory.EnumerateFiles(LogDirectory, "*.log*")
+                     .Where(file => File.GetLastWriteTime(file) > since))
+        {
+            var process = ProcessFromLogName(Path.GetFileName(file));
+            foreach (var line in ReadSharedLines(file))
+            {
+                var entry = DiagnosticEntry.TryParse(line, process);
+                if (entry != null && entry.Timestamp > since)
+                    result.Add(entry);
+            }
+        }
+        // One line per process and code is enough to act on; repeated
+        // identical warnings from every child process are noise.
+        return result
+            .OrderByDescending(entry => entry.Timestamp)
+            .GroupBy(entry => (entry.Process.ToLowerInvariant(), entry.Code))
+            .Select(group => group.First())
+            .Take(200)
+            .ToList();
+    }
+
+    private static string ProcessFromLogName(string name)
+    {
+        // mactype-<exe>-<pid>.log[.1]
+        var trimmed = name;
+        if (trimmed.StartsWith("mactype-", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed.Substring(8);
+        var logIndex = trimmed.IndexOf(".log", StringComparison.OrdinalIgnoreCase);
+        if (logIndex > 0)
+            trimmed = trimmed.Substring(0, logIndex);
+        var dash = trimmed.LastIndexOf('-');
+        return dash > 0 ? trimmed.Substring(0, dash) : trimmed;
+    }
+
+    private static IEnumerable<string> ReadSharedLines(string path)
+    {
+        var lines = new List<string>();
+        try
+        {
+            // Injected processes keep their log open for writing.
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+                lines.Add(line);
+        }
+        catch
+        {
+            // A process may rotate a log while it is being read.
+        }
+        return lines;
+    }
+
+    // ------------------------------------------------------------------
+    // Service status
+    // ------------------------------------------------------------------
+
     private async void RepairService_Click(object sender, RoutedEventArgs e)
     {
-        var button = sender as Button;
+        await RepairServiceAsync(sender as Button);
+    }
+
+    private async Task RepairServiceAsync(Button? button)
+    {
         try
         {
             if (button != null)
@@ -1053,50 +1772,33 @@ public partial class MainWindow : Window
             if (button != null)
                 button.IsEnabled = true;
             RefreshStatus();
+            RefreshHealth();
         }
+    }
+
+    private void RefreshServiceBadge(bool running)
+    {
+        ServiceBadge.Text = running ? "服务正在运行" : "服务未运行";
+        ServiceDot.SetResourceReference(
+            System.Windows.Shapes.Shape.FillProperty, running ? "GoodBrush" : "BadBrush");
+        ServiceBadgeBorder.SetResourceReference(
+            Border.BackgroundProperty, running ? "GoodSoftBrush" : "BadSoftBrush");
     }
 
     private void RefreshStatus()
     {
         var running = ServiceRunning();
-        ServiceBadge.Text = running ? "● 服务正在运行" : "● 服务未运行";
-        ServiceBadge.Foreground = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(running ? "#147A43" : "#B42318"));
-
+        RefreshServiceBadge(running);
         var covered = _effectiveProcesses.Count;
         var names = _effectiveProcesses
             .Select(process => process.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
-
-        var recentErrors = 0;
-        if (Directory.Exists(LogDirectory))
-        {
-            foreach (var file in Directory.EnumerateFiles(
-                         LogDirectory, "*.log", SearchOption.TopDirectoryOnly)
-                     .Where(file =>
-                         File.GetLastWriteTime(file) > DateTime.Now.AddHours(-1)))
-            {
-                try
-                {
-                    recentErrors += File.ReadLines(file).Count(line =>
-                        line.IndexOf(
-                            "level=ERROR", StringComparison.Ordinal) >= 0);
-                }
-                catch
-                {
-                    // A process may rotate a log while it is being read.
-                }
-            }
-        }
-
         StatusText.Text =
-            $"服务：{(running ? "Automatic / LocalSystem / Running" : "Stopped")}\n" +
-            $"托盘面板：{(Installer.IsTrayStartupEnabled() ? "登录时自动启动" : "不自动启动")}\n" +
-            $"活动配置：{ActiveProfile}\n" +
-            $"已覆盖进程：{covered}（{names} 类）\n" +
-            $"最近 1 小时错误：{recentErrors}\n" +
-            $"日志目录：{LogDirectory}";
+            $"服务      {(running ? "自动启动 · LocalSystem · 运行中" : "已停止")}\n" +
+            $"配置      {ActiveProfile}\n" +
+            $"已加载    {covered} 个进程（{names} 个程序）\n" +
+            $"日志      {LogDirectory}";
     }
 
     private void OpenLogs_Click(object sender, RoutedEventArgs e)
@@ -1158,6 +1860,10 @@ public partial class MainWindow : Window
         Marshal.GetDelegateForFunctionPointer<ReloadProc>(address)();
     }
 
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
     private static void SelectTag(ComboBox combo, string value)
     {
         combo.SelectedItem = combo.Items.Cast<ComboBoxItem>()
@@ -1182,6 +1888,11 @@ public partial class MainWindow : Window
         return value.ToString("0.00", CultureInfo.InvariantCulture);
     }
 
+    private static Brush ResourceBrush(string key)
+    {
+        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+    }
+
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate void ReloadProc();
 
@@ -1192,9 +1903,14 @@ public partial class MainWindow : Window
     private static extern IntPtr GetProcAddress(
         IntPtr module, string procedureName);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr window, int attribute, ref int value, int size);
+
     private sealed class ProfileValues
     {
-        public string Font { get; set; } = "PingFang SC";
+        public List<string> Chain { get; set; } = new List<string>();
+        public string? ActiveFont { get; set; }
         public bool ReplaceLatin { get; set; }
         public string Hinting { get; set; } = "1";
         public string Antialias { get; set; } = "0";
@@ -1203,6 +1919,186 @@ public partial class MainWindow : Window
         public double Weight { get; set; }
         public double DirectWriteGamma { get; set; }
         public double DirectWriteContrast { get; set; }
+    }
+
+    private sealed class FontChainEntry
+    {
+        public string Name { get; set; } = "";
+        public string Position { get; private set; } = "";
+        public string StatusText { get; private set; } = "";
+        public FontWeight NameWeight { get; private set; } = FontWeights.Normal;
+        public Brush BadgeBackground { get; private set; } = Brushes.Transparent;
+        public Brush BadgeForeground { get; private set; } = Brushes.Gray;
+
+        public void Update(int position, bool installed, bool active)
+        {
+            Position = position.ToString(CultureInfo.InvariantCulture);
+            NameWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            if (active)
+            {
+                StatusText = "使用中";
+                BadgeBackground = ResourceBrush("GoodSoftBrush");
+                BadgeForeground = ResourceBrush("GoodBrush");
+            }
+            else if (installed)
+            {
+                StatusText = "备用";
+                BadgeBackground = ResourceBrush("HoverBrush");
+                BadgeForeground = ResourceBrush("MutedBrush");
+            }
+            else
+            {
+                StatusText = "未安装";
+                BadgeBackground = Brushes.Transparent;
+                BadgeForeground = ResourceBrush("MutedBrush");
+            }
+        }
+    }
+
+    private sealed class RecommendedFont
+    {
+        public RecommendedFont(string name, string[] familyNames, string note, string url)
+        {
+            Name = name;
+            FamilyNames = familyNames;
+            Note = note;
+            Url = url;
+        }
+
+        public string Name { get; }
+        public string[] FamilyNames { get; }
+        public string Note { get; }
+        public string Url { get; }
+    }
+
+    private enum HealthState
+    {
+        Good,
+        Warn,
+        Bad
+    }
+
+    private sealed class HealthItem
+    {
+        public string Title { get; private set; } = "";
+        public string Detail { get; private set; } = "";
+        public HealthState State { get; private set; }
+        public string ActionLabel { get; private set; } = "";
+        public string ActionKey { get; private set; } = "";
+        public Visibility ActionVisibility =>
+            ActionKey.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        public Brush StateBrush => ResourceBrush(State switch
+        {
+            HealthState.Good => "GoodBrush",
+            HealthState.Warn => "WarnBrush",
+            _ => "BadBrush"
+        });
+
+        public static HealthItem Good(
+            string title, string detail, string action = "", string key = "") =>
+            Create(HealthState.Good, title, detail, action, key);
+
+        public static HealthItem Warn(
+            string title, string detail, string action = "", string key = "") =>
+            Create(HealthState.Warn, title, detail, action, key);
+
+        public static HealthItem Bad(
+            string title, string detail, string action = "", string key = "") =>
+            Create(HealthState.Bad, title, detail, action, key);
+
+        private static HealthItem Create(
+            HealthState state, string title, string detail, string action, string key)
+        {
+            return new HealthItem
+            {
+                State = state,
+                Title = title,
+                Detail = detail,
+                ActionLabel = action,
+                ActionKey = key
+            };
+        }
+    }
+
+    private sealed class DiagnosticEntry
+    {
+        public DateTime Timestamp { get; private set; }
+        public string Time => Timestamp.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        public string Process { get; private set; } = "";
+        public int Code { get; private set; }
+        public bool IsWarning { get; private set; }
+        public string Summary { get; private set; } = "";
+
+        // 2026-10-20 12:34:56.789 pid=1 tid=2 level=WARN code=700 error=0 message
+        public static DiagnosticEntry? TryParse(string line, string process)
+        {
+            var levelIndex = line.IndexOf(" level=", StringComparison.Ordinal);
+            if (line.Length < 23 || levelIndex < 0)
+                return null;
+            var isWarning = line.IndexOf(" level=WARN ", StringComparison.Ordinal) >= 0;
+            var isError = line.IndexOf(" level=ERROR ", StringComparison.Ordinal) >= 0;
+            if (!isWarning && !isError)
+                return null;
+            if (!DateTime.TryParseExact(
+                    line.Substring(0, 23),
+                    "yyyy-MM-dd HH:mm:ss.fff",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeLocal,
+                    out var timestamp))
+                return null;
+            var code = 0;
+            var codeIndex = line.IndexOf(" code=", StringComparison.Ordinal);
+            if (codeIndex >= 0)
+            {
+                var end = line.IndexOf(' ', codeIndex + 6);
+                int.TryParse(
+                    end > 0
+                        ? line.Substring(codeIndex + 6, end - codeIndex - 6)
+                        : line.Substring(codeIndex + 6),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out code);
+            }
+            var errorIndex = line.IndexOf(" error=", StringComparison.Ordinal);
+            var message = "";
+            if (errorIndex >= 0)
+            {
+                var space = line.IndexOf(' ', errorIndex + 7);
+                message = space > 0 ? line.Substring(space + 1).Trim() : "";
+            }
+            return new DiagnosticEntry
+            {
+                Timestamp = timestamp,
+                Process = process,
+                Code = code,
+                IsWarning = isWarning,
+                Summary = Describe(code, message)
+            };
+        }
+
+        private static string Describe(int code, string message)
+        {
+            switch (code)
+            {
+                case 500:
+                    return "程序启用了严格的安全策略（只允许签名模块或禁止动态代码），已跳过。这类进程无法处理。";
+                case 600:
+                    return "加载器无法把 YMacType 注入这个程序：" + message;
+                case 700:
+                    return "替换字体没有安装，这条替换规则被跳过：" + message;
+                case 701:
+                    return "没有任何字体替换规则生效，请检查字体链。";
+                case 103:
+                    return "YMacType 在这个程序里初始化失败：" + message;
+                case 200:
+                case 301:
+                    return "文字接口挂接失败，这个程序的部分文字不会被处理：" + message;
+                case 402:
+                    return "子进程注入失败：" + message;
+                default:
+                    return message.Length > 0 ? message : $"诊断代码 {code}";
+            }
+        }
     }
 
     private sealed class EffectiveProcessInfo
@@ -1224,7 +2120,7 @@ public partial class MainWindow : Window
         public string ExecutableName { get; set; } = "";
         public ApplicationRuleMode Mode { get; set; }
         public string ModeLabel => Mode == ApplicationRuleMode.Blocked
-            ? "完全屏蔽 YMacType"
+            ? "完全不处理"
             : "只渲染，不替换字体";
     }
 }

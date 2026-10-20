@@ -1,0 +1,102 @@
+name: Build and release
+
+# Every push builds x86/x64 core, loaders and the settings panel on a Windows
+# runner. Pushing a tag such as v1.2026.1020.1 also publishes a GitHub release
+# with the packaged zip; release notes come from doc/release-notes/<tag>.md.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v (for example 1.2026.1020.1). Leave empty for a test build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.event.inputs.version }}'
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $version = '${{ github.ref_name }}'.TrimStart('v')
+          }
+          if (-not $version) {
+            $version = '0.0.0.' + '${{ github.run_number }}'
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw "Version '$version' must look like 1.2026.1020.1"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Building $version"
+
+      - name: Cache third-party libraries
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-v143-${{ hashFiles('scripts/ci/build-deps.ps1') }}
+
+      - name: Build third-party libraries
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./scripts/ci/build-deps.ps1
+
+      - name: Build core, loaders and settings panel
+        shell: pwsh
+        run: ./scripts/build-release.ps1 -AllowCompilerWarnings -Version '${{ steps.version.outputs.version }}'
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $result = ./scripts/package-release.ps1 -Version '${{ steps.version.outputs.version }}'
+          $result | Format-List
+          "archive=$($result.Archive)" >> $env:GITHUB_OUTPUT
+          "sha256=$($result.SHA256)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ steps.version.outputs.version }}
+          path: build-release-*.log
+          if-no-files-found: ignore
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: YMacType-${{ steps.version.outputs.version }}
+          path: ${{ steps.package.outputs.archive }}
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $notes = "doc/release-notes/$tag.md"
+          $body = if (Test-Path $notes) { Get-Content -Raw -Encoding utf8 $notes } else { "YMacType $tag" }
+          $body += "`n`nSHA-256: ``${{ steps.package.outputs.sha256 }}``"
+          $bodyFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -Encoding utf8 -LiteralPath $bodyFile -Value $body
+          gh release create $tag '${{ steps.package.outputs.archive }}' `
+            --title "YMacType $tag" --notes-file $bodyFile --verify-tag

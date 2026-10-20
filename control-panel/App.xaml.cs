@@ -2,8 +2,11 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 
 namespace YMacType.Settings
 {
@@ -13,9 +16,77 @@ namespace YMacType.Settings
         private EventWaitHandle? _showEvent;
         private RegisteredWaitHandle? _showRegistration;
 
+        private static readonly Dictionary<string, (string Light, string Dark)> Palette =
+            new Dictionary<string, (string Light, string Dark)>
+            {
+                ["PaperBrush"] = ("#F3F4F6", "#1B1C1F"),
+                ["SurfaceBrush"] = ("#FFFFFF", "#242529"),
+                ["NavBrush"] = ("#ECEEF1", "#202124"),
+                ["InkBrush"] = ("#16181D", "#E9EAEC"),
+                ["MutedBrush"] = ("#5F6672", "#9CA1AA"),
+                ["LineBrush"] = ("#DDE1E6", "#36383D"),
+                ["HoverBrush"] = ("#E4E7EB", "#2E3035"),
+                ["AccentBrush"] = ("#2B4C7E", "#8DB0E3"),
+                ["AccentHoverBrush"] = ("#23406B", "#A4C0EA"),
+                ["AccentSoftBrush"] = ("#E3EAF5", "#2A3445"),
+                ["OnAccentBrush"] = ("#FFFFFF", "#111722"),
+                ["GoodBrush"] = ("#1E7A4C", "#64C795"),
+                ["GoodSoftBrush"] = ("#E3F2EA", "#1E3328"),
+                ["WarnBrush"] = ("#8A5300", "#E8B460"),
+                ["WarnSoftBrush"] = ("#FBF0DC", "#3A301E"),
+                ["BadBrush"] = ("#B42318", "#F2877C"),
+                ["BadSoftBrush"] = ("#FBE9E7", "#3D2522"),
+            };
+
+        public static bool IsDarkTheme { get; private set; }
+
+        private static bool SystemUsesDarkTheme()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                return key?.GetValue("AppsUseLightTheme") is int light && light == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ApplyTheme()
+        {
+            IsDarkTheme = SystemUsesDarkTheme();
+            foreach (var entry in Palette)
+            {
+                var color = (Color)ColorConverter.ConvertFromString(
+                    IsDarkTheme ? entry.Value.Dark : entry.Value.Light);
+                var brush = new SolidColorBrush(color);
+                brush.Freeze();
+                Resources[entry.Key] = brush;
+            }
+        }
+
+        private void OnUserPreferenceChanged(
+            object sender,
+            UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.General)
+                return;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var wasDark = IsDarkTheme;
+                ApplyTheme();
+                if (wasDark != IsDarkTheme && Current.MainWindow is YMacType.Settings.MainWindow window)
+                    window.OnThemeChanged();
+            }));
+        }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            ApplyTheme();
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
             if (System.Array.Exists(
                     e.Args,
                     argument => argument.Equals(
@@ -162,6 +233,7 @@ namespace YMacType.Settings
 
         protected override void OnExit(ExitEventArgs e)
         {
+            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             _showRegistration?.Unregister(null);
             _showEvent?.Dispose();
             if (_instanceMutex != null)

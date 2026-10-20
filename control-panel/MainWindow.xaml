@@ -1,427 +1,705 @@
 <Window x:Class="YMacType.Settings.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="YMacType 设置" Width="920" Height="720"
-        MinWidth="820" MinHeight="640"
+        Title="YMacType 设置" Width="1040" Height="760"
+        MinWidth="880" MinHeight="620"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource PaperBrush}"
+        Foreground="{DynamicResource InkBrush}"
+        FontFamily="{DynamicResource UiFont}" FontSize="13.5"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SourceInitialized="Window_SourceInitialized"
         Loaded="Window_Loaded" Closing="Window_Closing">
-  <Grid Margin="24">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="18"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="18"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="216"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
 
-    <Grid Grid.Row="0">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <StackPanel>
-        <TextBlock Text="YMacType" FontSize="28" FontWeight="SemiBold"/>
-        <TextBlock Text="Windows 11 字体与渲染控制中心"
-                   Foreground="{StaticResource MutedBrush}" FontSize="14"/>
-      </StackPanel>
-      <Border Grid.Column="1" Background="#E9F7EF" CornerRadius="16"
-              Padding="14,7" VerticalAlignment="Center">
-        <TextBlock x:Name="ServiceBadge" Text="正在检查服务"
-                   Foreground="#147A43" FontWeight="SemiBold"/>
-      </Border>
-    </Grid>
-
-    <TabControl x:Name="MainTabs" Grid.Row="2"
-                SelectionChanged="MainTabs_SelectionChanged"
-                Background="Transparent" BorderThickness="0">
-      <TabItem Header="字体">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="4,18,4,4">
-            <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                    Padding="20" Margin="0,0,0,14">
-              <StackPanel>
-                <TextBlock Text="界面字体" FontSize="17" FontWeight="SemiBold"/>
-                <TextBlock Text="选择用于常见 Windows 中文字体和 UI 字体的替代字体。"
-                           Foreground="{StaticResource MutedBrush}" Margin="0,4,0,12"/>
-                <ComboBox x:Name="FontSelector" SelectionChanged="PreviewChanged"/>
-                <CheckBox x:Name="ReplaceLatinFonts" IsChecked="False" Margin="0,14,0,0"
-                          Content="实验性：同时替换拉丁 UI 字体（可能导致部分 DirectWrite 应用错字）"
-                          Checked="PreviewChanged" Unchecked="PreviewChanged"/>
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="PreviewCard" Background="White" CornerRadius="12"
-                    Padding="24" MinHeight="210">
-              <StackPanel>
-                <DockPanel>
-                  <TextBlock Text="实时预览" FontSize="17" FontWeight="SemiBold"/>
-                  <CheckBox x:Name="DarkPreview" Content="深色背景"
-                            DockPanel.Dock="Right" HorizontalAlignment="Right"
-                            Checked="PreviewChanged" Unchecked="PreviewChanged"/>
-                </DockPanel>
-                <TextBlock x:Name="PreviewChinese"
-                           Text="让文字像 macOS 一样自然、清晰而有呼吸感。"
-                           FontSize="27" TextWrapping="Wrap" Margin="0,24,0,10"/>
-                <TextBlock x:Name="PreviewLatin"
-                           Text="The quick brown fox jumps over the lazy dog. 0123456789"
-                           FontSize="20" TextWrapping="Wrap"/>
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-
-      <TabItem Header="系统字体">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="4,18,4,4">
-            <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                    Padding="20" Margin="0,0,0,14">
-              <StackPanel>
-                <TextBlock Text="Windows 全局界面字体" FontSize="17"
-                           FontWeight="SemiBold"/>
-                <TextBlock Text="一次设置标题栏、菜单、消息框、状态栏和资源管理器图标文字使用的字体与字号。"
-                           Foreground="{StaticResource MutedBrush}"
-                           TextWrapping="Wrap" Margin="0,4,0,16"/>
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="18"/>
-                    <ColumnDefinition Width="180"/>
-                  </Grid.ColumnDefinitions>
-                  <StackPanel>
-                    <TextBlock Text="全局字体" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="SystemFontSelector"
-                              Margin="0,6,0,0"
-                              SelectionChanged="SystemFontPreviewChanged"/>
-                  </StackPanel>
-                  <StackPanel Grid.Column="2">
-                    <TextBlock Text="字号（磅）" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="SystemFontSizeSelector"
-                              Margin="0,6,0,0"
-                              SelectionChanged="SystemFontPreviewChanged"/>
-                  </StackPanel>
-                </Grid>
-                <TextBlock x:Name="SystemFontStatusText"
-                           Margin="0,14,0,0"
-                           Foreground="{StaticResource MutedBrush}"
-                           TextWrapping="Wrap"/>
-              </StackPanel>
-            </Border>
-
-            <Border x:Name="SystemFontPreviewCard" Background="White"
-                    CornerRadius="12" Padding="24" MinHeight="190">
-              <StackPanel>
-                <TextBlock Text="系统字体预览" FontSize="17"
-                           FontWeight="SemiBold"/>
-                <TextBlock x:Name="SystemFontPreviewTitle"
-                           Text="文件、编辑、查看、帮助"
-                           FontSize="18" Margin="0,22,0,10"/>
-                <TextBlock x:Name="SystemFontPreviewBody"
-                           Text="这是 Windows 传统界面字体的全局预览。现代 WinUI、浏览器网页和自行绘制文字的程序可能不读取此设置。"
-                           TextWrapping="Wrap" FontSize="14"/>
-              </StackPanel>
-            </Border>
-
-            <Border Background="#EEF4FF" CornerRadius="10" Padding="16"
-                    Margin="0,14,0,0">
-              <StackPanel>
-                <TextBlock Text="说明" FontWeight="SemiBold"
-                           Foreground="#315A9E"/>
-                <TextBlock Text="设置只作用于当前 Windows 用户的传统 Win32/WinForms 界面；Chrome、现代 WinUI 和游戏等自行绘制界面的程序不会被强制改字体。应用前会自动备份当前值，可随时恢复。"
-                           TextWrapping="Wrap" Foreground="#315A9E"
-                           Margin="0,6,0,0"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                            Margin="0,12,0,0">
-                  <Button x:Name="RestoreSystemFontButton"
-                          Content="恢复上次备份"
-                          Click="RestoreSystemFont_Click"/>
-                  <Button x:Name="ApplySystemFontButton"
-                          Content="应用到 Windows UI"
-                          Click="ApplySystemFont_Click"
-                          Background="{StaticResource AccentBrush}"
-                          Foreground="White" FontWeight="SemiBold"/>
-                </StackPanel>
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-
-      <TabItem Header="渲染">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="4,18,4,4">
-            <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="20">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="26"/>
-                  <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                  <TextBlock Text="FreeType / GDI" FontSize="17" FontWeight="SemiBold"/>
-                  <TextBlock Text="Hinting" Margin="0,16,0,4"/>
-                  <ComboBox x:Name="HintingSelector">
-                    <ComboBoxItem Content="无 Hinting（macOS 风格）" Tag="1"/>
-                    <ComboBoxItem Content="字体内置 Hinting" Tag="0"/>
-                    <ComboBoxItem Content="自动 Hinting" Tag="2"/>
-                  </ComboBox>
-                  <TextBlock Margin="0,16,0,0">
-                    <Run Text="Gamma  "/><Run x:Name="GammaValueText"/>
-                  </TextBlock>
-                  <Slider x:Name="GammaSlider" Minimum="0.6" Maximum="2.2"
-                          Value="1.2" TickFrequency="0.05" ValueChanged="PreviewChanged"/>
-                  <TextBlock Margin="0,12,0,0">
-                    <Run Text="对比度  "/><Run x:Name="ContrastValueText"/>
-                  </TextBlock>
-                  <Slider x:Name="ContrastSlider" Minimum="0.5" Maximum="2.0"
-                          Value="1.0" TickFrequency="0.05" ValueChanged="PreviewChanged"/>
-                  <TextBlock Margin="0,12,0,0">
-                    <Run Text="墨水重量  "/><Run x:Name="WeightValueText"/>
-                  </TextBlock>
-                  <Slider x:Name="WeightSlider" Minimum="0.7" Maximum="2.0"
-                          Value="1.15" TickFrequency="0.05" ValueChanged="PreviewChanged"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="2">
-                  <TextBlock Text="DirectWrite / Direct2D" FontSize="17" FontWeight="SemiBold"/>
-                  <TextBlock Text="抗锯齿" Margin="0,16,0,4"/>
-                  <ComboBox x:Name="AntialiasSelector">
-                    <ComboBoxItem Content="灰阶（macOS 风格）" Tag="0"/>
-                    <ComboBoxItem Content="RGB 次像素" Tag="4"/>
-                    <ComboBoxItem Content="BGR 次像素" Tag="5"/>
-                  </ComboBox>
-                  <TextBlock Margin="0,16,0,0">
-                    <Run Text="DirectWrite Gamma  "/><Run x:Name="DwGammaValueText"/>
-                  </TextBlock>
-                  <Slider x:Name="DwGammaSlider" Minimum="0.6" Maximum="2.2"
-                          Value="1.15" TickFrequency="0.05" ValueChanged="PreviewChanged"/>
-                  <TextBlock Margin="0,12,0,0">
-                    <Run Text="DirectWrite 对比度  "/><Run x:Name="DwContrastValueText"/>
-                  </TextBlock>
-                  <Slider x:Name="DwContrastSlider" Minimum="0.0" Maximum="2.0"
-                          Value="0.8" TickFrequency="0.05" ValueChanged="PreviewChanged"/>
-                  <TextBlock Text="字号预览" Margin="0,12,0,0"/>
-                  <Slider x:Name="PreviewSizeSlider" Minimum="14" Maximum="42"
-                          Value="27" TickFrequency="1" ValueChanged="PreviewChanged"/>
-                </StackPanel>
-              </Grid>
-            </Border>
-            <Border Background="#EEF4FF" CornerRadius="10" Padding="16" Margin="0,14,0,0">
-              <TextBlock TextWrapping="Wrap" Foreground="#315A9E">
-                滑块会即时更新字体和视觉重量预览。Gamma、Hinting 与 DirectWrite
-                参数在点击“应用”后写入核心配置；已运行程序需重新打开才能重建字体工厂。
-              </TextBlock>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-
-      <TabItem Header="状态">
-        <StackPanel Margin="4,18,4,4">
-          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                  Padding="20" Margin="0,0,0,14">
-            <StackPanel>
-              <TextBlock Text="运行状态" FontSize="17" FontWeight="SemiBold"/>
-              <TextBlock x:Name="StatusText" Margin="0,14,0,0"
-                         FontFamily="Consolas" TextWrapping="Wrap"/>
-              <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                <Button Content="刷新状态" Click="RefreshStatus_Click"/>
-                <Button Content="启动 / 修复服务" Click="RepairService_Click"/>
-                <Button Content="打开日志" Click="OpenLogs_Click"/>
-                <Button Content="打开配置" Click="OpenProfile_Click"/>
-              </StackPanel>
-            </StackPanel>
-          </Border>
-          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                  Padding="20">
-            <StackPanel>
-              <TextBlock Text="自动启动" FontSize="17"
-                         FontWeight="SemiBold"/>
-              <CheckBox x:Name="TrayStartupCheckBox"
-                        Margin="0,16,0,0"
-                        FontWeight="SemiBold"
-                        Content="登录 Windows 后自动启动 YMacType 托盘面板"
-                        Checked="TrayStartup_Changed"
-                        Unchecked="TrayStartup_Changed"/>
-              <TextBlock x:Name="TrayStartupDescription"
-                         Margin="24,8,0,0"
-                         Foreground="{StaticResource MutedBrush}"
-                         TextWrapping="Wrap"
-                         Text="核心字体服务始终随系统自动启动；此开关只控制设置面板和右下角托盘图标。"/>
-            </StackPanel>
-          </Border>
+    <!-- Navigation -->
+    <Border Background="{DynamicResource NavBrush}"
+            BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="12,20,12,16">
+        <StackPanel DockPanel.Dock="Top" Margin="10,0,0,22">
+          <TextBlock Text="YMacType" FontSize="20" FontWeight="SemiBold"/>
+          <TextBlock Text="Windows 字体渲染" Style="{StaticResource Caption}"/>
         </StackPanel>
-      </TabItem>
+        <Border DockPanel.Dock="Bottom" Padding="10,8" CornerRadius="6"
+                x:Name="ServiceBadgeBorder" Background="{DynamicResource GoodSoftBrush}">
+          <StackPanel Orientation="Horizontal">
+            <Ellipse x:Name="ServiceDot" Width="8" Height="8"
+                     Fill="{DynamicResource GoodBrush}" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ServiceBadge" Text="正在检查服务" Margin="8,0,0,0"
+                       FontSize="12" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Border>
+        <ListBox x:Name="NavList" Background="Transparent" BorderThickness="0"
+                 ItemContainerStyle="{StaticResource NavItem}"
+                 SelectedIndex="{Binding SelectedIndex, ElementName=MainTabs, Mode=TwoWay}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE80F;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="概览"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE8D2;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="字体"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE7F4;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="系统界面字体"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE790;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="渲染"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE71D;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="应用规则"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE73E;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="已生效应用"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE90F;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="乱码排查"/>
+          </StackPanel>
+        </ListBox>
+      </DockPanel>
+    </Border>
 
-      <TabItem x:Name="ApplicationRulesTab" Header="应用规则">
-        <Grid Margin="4,18,4,4">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="Auto"/>
-          </Grid.RowDefinitions>
-          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                  Padding="18">
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="搜索规则" FontWeight="SemiBold"
-                         VerticalAlignment="Center"/>
-              <TextBox x:Name="RuleSearchBox" Grid.Column="2"
-                       MinHeight="36" Padding="10,6"
-                       TextChanged="RuleSearch_TextChanged"
-                       ToolTip="按可执行文件名或规则类型搜索"/>
-            </Grid>
-          </Border>
-          <Border Grid.Row="2" Background="{StaticResource CardBrush}"
-                  CornerRadius="12" Padding="8">
-            <DataGrid x:Name="ApplicationRulesGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      CanUserAddRows="False"
-                      CanUserDeleteRows="False"
-                      HeadersVisibility="Column"
-                      GridLinesVisibility="Horizontal"
-                      BorderThickness="0"
-                      RowHeaderWidth="0"
-                      SelectionMode="Single"
-                      SelectionChanged="ApplicationRule_SelectionChanged">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="可执行文件"
-                                    Binding="{Binding ExecutableName}"
-                                    Width="2*"/>
-                <DataGridTextColumn Header="规则"
-                                    Binding="{Binding ModeLabel}"
-                                    Width="2*"/>
-              </DataGrid.Columns>
-            </DataGrid>
-          </Border>
-          <Border Grid.Row="4" Background="{StaticResource CardBrush}"
-                  CornerRadius="12" Padding="18">
-            <StackPanel>
-              <TextBlock Text="添加或修改规则" FontSize="17"
-                         FontWeight="SemiBold"/>
-              <Grid Margin="0,14,0,0">
+    <Grid Grid.Column="1">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <!-- Pages. Tab headers are hidden; NavList drives selection. -->
+      <TabControl x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged"
+                  Background="Transparent" BorderThickness="0" Padding="0">
+        <TabControl.ItemContainerStyle>
+          <Style TargetType="TabItem">
+            <Setter Property="Visibility" Value="Collapsed"/>
+          </Style>
+        </TabControl.ItemContainerStyle>
+
+        <!-- ============ Overview ============ -->
+        <TabItem x:Name="OverviewTab">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="40,32,40,32" MaxWidth="860" HorizontalAlignment="Left">
+              <TextBlock Text="概览" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="YMacType 接管程序里的 GDI 和 DirectWrite 文字，用 FreeType 重新绘制。下面是当前的工作状态，需要处理的项目会给出修复按钮。"/>
+
+              <TextBlock Text="检查结果" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <Border Style="{StaticResource Panel}" Padding="8">
+                <ItemsControl x:Name="HealthList">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="12,12">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="24"/>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Width="9" Height="9" Margin="0,6,0,0"
+                                 VerticalAlignment="Top" HorizontalAlignment="Left"
+                                 Fill="{Binding StateBrush}"/>
+                        <StackPanel Grid.Column="1">
+                          <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                          <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}"
+                                     Margin="0,3,0,0" FontSize="12.5"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" Content="{Binding ActionLabel}"
+                                Tag="{Binding ActionKey}" Click="HealthAction_Click"
+                                Visibility="{Binding ActionVisibility}"
+                                VerticalAlignment="Center" Margin="12,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Border>
+
+              <TextBlock Text="服务与启动" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                  <CheckBox x:Name="TrayStartupCheckBox"
+                            Content="登录 Windows 后显示托盘图标"
+                            Checked="TrayStartup_Changed" Unchecked="TrayStartup_Changed"/>
+                  <TextBlock x:Name="TrayStartupDescription" Style="{StaticResource Caption}"
+                             Margin="50,4,0,0"
+                             Text="核心字体服务总是随系统启动。这个开关只控制设置面板和托盘图标。"/>
+                  <WrapPanel Margin="0,18,0,0">
+                    <Button Content="启动并修复服务" Click="RepairService_Click"/>
+                    <Button Content="打开日志文件夹" Click="OpenLogs_Click"/>
+                    <Button Content="打开配置文件" Click="OpenProfile_Click"/>
+                    <Button Content="重新检查" Click="RefreshStatus_Click"/>
+                  </WrapPanel>
+                  <TextBlock x:Name="StatusText" Style="{StaticResource Caption}"
+                             FontFamily="{DynamicResource CodeFont}" Margin="0,16,0,0"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ Fonts ============ -->
+        <TabItem x:Name="FontsTab">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="40,32,40,32" MaxWidth="860" HorizontalAlignment="Left">
+              <TextBlock Text="字体" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="程序请求微软雅黑、等线、宋体等中文字体时，YMacType 会改用下面链条里第一个已安装的字体。"/>
+
+              <!-- Specimen: rendered with the whole chain, the same way the core resolves it. -->
+              <Border x:Name="PreviewCard" CornerRadius="10" Margin="0,24,0,0"
+                      Padding="32,28" Background="#FFFFFF"
+                      BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                <StackPanel>
+                  <TextBlock x:Name="PreviewDisplay" FontSize="44" TextWrapping="Wrap"
+                             Text="文字是每天要读上万遍的界面"/>
+                  <TextBlock x:Name="PreviewChinese" FontSize="16" TextWrapping="Wrap"
+                             Margin="0,18,0,0" LineHeight="27"
+                             Text="渲染决定了笔画的粗细、边缘的软硬和字距的松紧。灰阶抗锯齿让中文笔画保持原本的形状，不会被硬性对齐到像素格上。"/>
+                  <TextBlock x:Name="PreviewLatin" FontSize="16" TextWrapping="Wrap"
+                             Margin="0,10,0,0"
+                             Text="Handgloves 0123456789 · The quick brown fox jumps over the lazy dog."/>
+                  <TextBlock x:Name="PreviewUi" FontSize="12" Margin="0,18,0,0"
+                             Text="文件　编辑　视图　窗口　帮助　　设置 › 个性化 › 字体"/>
+                </StackPanel>
+              </Border>
+              <Grid Margin="0,12,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="220"/>
+                  <ColumnDefinition Width="160"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox x:Name="RuleExecutableBox"
-                         MinHeight="36" Padding="10,6"
-                         ToolTip="输入程序名，例如 chrome.exe"/>
-                <Button Grid.Column="1" Content="浏览…"
-                        Click="BrowseRuleExecutable_Click"/>
-                <ComboBox x:Name="RuleModeSelector" Grid.Column="2"
-                          MinHeight="36" Margin="10,0,0,0">
-                  <ComboBoxItem Content="完全屏蔽 YMacType"
-                                Tag="Blocked"/>
-                  <ComboBoxItem Content="只渲染，不替换字体"
-                                Tag="RenderOnly"/>
-                </ComboBox>
+                <TextBlock x:Name="ResolvedFontText" Style="{StaticResource Caption}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="字号" Style="{StaticResource Caption}"
+                           VerticalAlignment="Center" Margin="16,0,10,0"/>
+                <Slider x:Name="PreviewSizeSlider" Grid.Column="2" Minimum="24" Maximum="64"
+                        Value="44" ValueChanged="PreviewChanged" VerticalAlignment="Center"/>
+                <CheckBox x:Name="DarkPreview" Grid.Column="3" Content="深色背景"
+                          Margin="20,0,0,0" VerticalAlignment="Center"
+                          Checked="PreviewChanged" Unchecked="PreviewChanged"/>
               </Grid>
-              <DockPanel Margin="0,12,0,0">
-                <TextBlock Foreground="{StaticResource MutedBrush}"
-                           VerticalAlignment="Center" TextWrapping="Wrap">
-                  修改对新启动的程序立即生效；已运行程序需要完全退出后重新打开。
-                </TextBlock>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                            HorizontalAlignment="Right">
-                  <Button Content="删除选中规则"
-                          Click="RemoveApplicationRule_Click"/>
-                  <Button Content="保存规则"
-                          Click="SaveApplicationRule_Click"
-                          Background="{StaticResource AccentBrush}"
-                          Foreground="White" FontWeight="SemiBold"/>
-                </StackPanel>
-              </DockPanel>
-            </StackPanel>
-          </Border>
-        </Grid>
-      </TabItem>
 
-      <TabItem x:Name="EffectiveApplicationsTab" Header="已生效应用">
-        <Grid Margin="4,18,4,4">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="*"/>
-          </Grid.RowDefinitions>
-          <Border Background="{StaticResource CardBrush}" CornerRadius="12"
-                  Padding="18">
-            <Grid>
+              <Border x:Name="FontChainWarning" Margin="0,24,0,0" Padding="16,12"
+                      CornerRadius="8" Background="{DynamicResource WarnSoftBrush}"
+                      Visibility="Collapsed">
+                <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource WarnBrush}"
+                           Text="链条里的字体都没有安装，字体替换不会生效（只有渲染效果会改变）。请安装下方任意一款字体，或把已安装的字体加入链条。"/>
+              </Border>
+
+              <TextBlock Text="替换字体链" Style="{StaticResource SectionTitle}" Margin="0,28,0,4"/>
+              <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10"
+                         Text="从上往下查找，第一个已安装的字体生效。PingFang SC 是苹果的字体，Windows 不附带。"/>
+              <Border Style="{StaticResource Panel}">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+                  <ListBox x:Name="FontChainList" Background="Transparent" BorderThickness="0"
+                           ItemContainerStyle="{StaticResource ChainItem}"
+                           MinHeight="120"
+                           SelectionChanged="FontChainList_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                          </Grid.ColumnDefinitions>
+                          <TextBlock Text="{Binding Position}" Style="{StaticResource Caption}"
+                                     VerticalAlignment="Center"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                     FontWeight="{Binding NameWeight}" VerticalAlignment="Center"/>
+                          <Border Grid.Column="2" CornerRadius="4" Padding="8,2"
+                                  Background="{Binding BadgeBackground}">
+                            <TextBlock Text="{Binding StatusText}" FontSize="12"
+                                       Foreground="{Binding BadgeForeground}"/>
+                          </Border>
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <StackPanel Grid.Column="2" Width="96">
+                    <Button x:Name="MoveUpButton" Content="上移" Click="MoveFontUp_Click" Margin="0,0,0,6"/>
+                    <Button x:Name="MoveDownButton" Content="下移" Click="MoveFontDown_Click" Margin="0,0,0,6"/>
+                    <Button x:Name="RemoveFontButton" Content="移除" Click="RemoveFont_Click" Margin="0"/>
+                  </StackPanel>
+                  <Grid Grid.Row="1" Grid.ColumnSpan="3" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="FontSelector" IsTextSearchEnabled="True"
+                              MaxDropDownHeight="360"
+                              ToolTip="已安装的字体，输入首字母可快速定位"/>
+                    <Button Grid.Column="1" Content="加入链条" Click="AddFont_Click"
+                            Margin="10,0,0,0"/>
+                  </Grid>
+                </Grid>
+              </Border>
+
+              <Border Style="{StaticResource Panel}" Margin="0,12,0,0">
+                <StackPanel>
+                  <CheckBox x:Name="ReplaceLatinFonts" IsChecked="False"
+                            Content="同时替换 Segoe UI、Arial 等西文界面字体"
+                            Checked="PreviewChanged" Unchecked="PreviewChanged"/>
+                  <TextBlock Style="{StaticResource Caption}" Margin="50,4,0,0"
+                             Text="实验功能。部分 DirectWrite 程序缓存了字形编号，替换西文字体后可能显示错字。"/>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="可以免费使用的中文字体" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <ItemsControl x:Name="RecommendedFontList">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="0,0,0,12">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                      <TextBlock Grid.Column="1" Text="{Binding Note}" Style="{StaticResource Caption}"
+                                 FontSize="12.5"/>
+                      <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,0,0,0">
+                        <TextBlock Text="{Binding InstalledText}" Style="{StaticResource Caption}"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Button Content="下载页面" Style="{StaticResource LinkButton}"
+                                Tag="{Binding Url}" Click="OpenUrl_Click"/>
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ Windows UI font ============ -->
+        <TabItem x:Name="SystemFontTab">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="40,32,40,32" MaxWidth="860" HorizontalAlignment="Left">
+              <TextBlock Text="系统界面字体" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="设置 Windows 传统界面里标题栏、菜单、消息框、状态栏和桌面图标文字用的字体与字号。这是 Windows 自己的设置，和上面的字体替换互不影响，只对当前用户生效。"/>
+
+              <Border Style="{StaticResource Panel}" Margin="0,24,0,0">
+                <StackPanel>
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="16"/>
+                      <ColumnDefinition Width="160"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                      <TextBlock Text="字体" Margin="0,0,0,6"/>
+                      <ComboBox x:Name="SystemFontSelector" IsTextSearchEnabled="True"
+                                MaxDropDownHeight="360"
+                                SelectionChanged="SystemFontPreviewChanged"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                      <TextBlock Text="字号（磅）" Margin="0,0,0,6"/>
+                      <ComboBox x:Name="SystemFontSizeSelector" MaxDropDownHeight="300"
+                                SelectionChanged="SystemFontPreviewChanged"/>
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock x:Name="SystemFontStatusText" Style="{StaticResource Caption}"
+                             Margin="0,12,0,0"/>
+                </StackPanel>
+              </Border>
+
+              <!-- A miniature legacy window, drawn with the chosen font. -->
+              <Border x:Name="SystemFontPreviewCard" Margin="0,16,0,0" CornerRadius="8"
+                      Background="{DynamicResource SurfaceBrush}"
+                      BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                <StackPanel>
+                  <Border Padding="14,9" BorderBrush="{DynamicResource LineBrush}"
+                          BorderThickness="0,0,0,1">
+                    <TextBlock x:Name="SystemFontPreviewTitle" Text="记事本 - 无标题"/>
+                  </Border>
+                  <TextBlock x:Name="SystemFontPreviewMenu" Margin="14,8,14,0"
+                             Text="文件(F)　编辑(E)　格式(O)　查看(V)　帮助(H)"/>
+                  <TextBlock x:Name="SystemFontPreviewBody" Margin="14,18,14,18"
+                             TextWrapping="Wrap"
+                             Text="浏览器网页、新版 Windows 界面和自绘界面的程序不读取这个设置。"/>
+                  <Border Padding="14,6" BorderBrush="{DynamicResource LineBrush}"
+                          BorderThickness="0,1,0,0">
+                    <TextBlock x:Name="SystemFontPreviewStatus" Text="第 1 行，第 1 列　　100%　　UTF-8"
+                               Foreground="{DynamicResource MutedBrush}"/>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <WrapPanel Margin="0,16,0,0">
+                <Button x:Name="ApplySystemFontButton" Content="应用到 Windows"
+                        Click="ApplySystemFont_Click" Style="{StaticResource AccentButton}"/>
+                <Button x:Name="RestoreSystemFontButton" Content="恢复上次的设置"
+                        Click="RestoreSystemFont_Click"/>
+              </WrapPanel>
+              <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0"
+                         Text="应用前会自动备份当前设置。新打开的程序会使用新字体，部分界面要注销后才完全更新。"/>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ Rendering ============ -->
+        <TabItem x:Name="RenderTab">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="40,32,40,32" MaxWidth="860" HorizontalAlignment="Left">
+              <TextBlock Text="渲染" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="先选一个起点，再微调。改动在点击“应用设置”后写入配置，新打开的程序立即使用；已经打开的程序需要重新启动。"/>
+
+              <TextBlock Text="起点" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <UniformGrid Columns="3">
+                <Button Tag="mac" Click="Preset_Click" Margin="0,0,10,0"
+                        HorizontalContentAlignment="Stretch" Padding="16,14">
+                  <StackPanel HorizontalAlignment="Left">
+                    <TextBlock Text="macOS 风格" FontWeight="SemiBold"/>
+                    <TextBlock Text="不做 Hinting、灰阶抗锯齿。字形最接近设计稿，小字号略软。"
+                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                  </StackPanel>
+                </Button>
+                <Button Tag="balanced" Click="Preset_Click" Margin="0,0,10,0"
+                        HorizontalContentAlignment="Stretch" Padding="16,14">
+                  <StackPanel HorizontalAlignment="Left">
+                    <TextBlock Text="均衡" FontWeight="SemiBold"/>
+                    <TextBlock Text="轻度自动 Hinting、灰阶抗锯齿。小字号更清楚，适合 100%–125% 缩放。"
+                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                  </StackPanel>
+                </Button>
+                <Button Tag="crisp" Click="Preset_Click" Margin="0"
+                        HorizontalContentAlignment="Stretch" Padding="16,14">
+                  <StackPanel HorizontalAlignment="Left">
+                    <TextBlock Text="清晰锐利" FontWeight="SemiBold"/>
+                    <TextBlock Text="字体内置 Hinting、RGB 次像素。接近 ClearType，边缘最硬。"
+                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                  </StackPanel>
+                </Button>
+              </UniformGrid>
+
+              <Grid Margin="0,24,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="16"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <TextBlock Text="GDI 程序" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="传统桌面程序、资源管理器的大部分界面" Style="{StaticResource Caption}"/>
+                    <TextBlock Text="Hinting" Margin="0,18,0,6"/>
+                    <ComboBox x:Name="HintingSelector">
+                      <ComboBoxItem Content="不做 Hinting（macOS 风格）" Tag="1"/>
+                      <ComboBoxItem Content="使用字体内置 Hinting" Tag="0"/>
+                      <ComboBoxItem Content="自动 Hinting" Tag="2"/>
+                    </ComboBox>
+                    <DockPanel Margin="0,18,0,0">
+                      <TextBlock x:Name="GammaValueText" DockPanel.Dock="Right"
+                                 Style="{StaticResource Caption}"/>
+                      <TextBlock Text="Gamma"/>
+                    </DockPanel>
+                    <Slider x:Name="GammaSlider" Minimum="0.6" Maximum="2.2"
+                            Value="1.2" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="PreviewChanged"/>
+                    <DockPanel Margin="0,12,0,0">
+                      <TextBlock x:Name="ContrastValueText" DockPanel.Dock="Right"
+                                 Style="{StaticResource Caption}"/>
+                      <TextBlock Text="对比度"/>
+                    </DockPanel>
+                    <Slider x:Name="ContrastSlider" Minimum="0.5" Maximum="2.0"
+                            Value="1.0" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="PreviewChanged"/>
+                    <DockPanel Margin="0,12,0,0">
+                      <TextBlock x:Name="WeightValueText" DockPanel.Dock="Right"
+                                 Style="{StaticResource Caption}"/>
+                      <TextBlock Text="笔画粗细"/>
+                    </DockPanel>
+                    <Slider x:Name="WeightSlider" Minimum="0.7" Maximum="2.0"
+                            Value="1.15" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="PreviewChanged"/>
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <TextBlock Text="DirectWrite 程序" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="浏览器、Electron 应用、新版 Windows 界面" Style="{StaticResource Caption}"/>
+                    <TextBlock Text="抗锯齿" Margin="0,18,0,6"/>
+                    <ComboBox x:Name="AntialiasSelector">
+                      <ComboBoxItem Content="灰阶（macOS 风格）" Tag="0"/>
+                      <ComboBoxItem Content="RGB 次像素" Tag="4"/>
+                      <ComboBoxItem Content="BGR 次像素" Tag="5"/>
+                    </ComboBox>
+                    <DockPanel Margin="0,18,0,0">
+                      <TextBlock x:Name="DwGammaValueText" DockPanel.Dock="Right"
+                                 Style="{StaticResource Caption}"/>
+                      <TextBlock Text="Gamma"/>
+                    </DockPanel>
+                    <Slider x:Name="DwGammaSlider" Minimum="0.6" Maximum="2.2"
+                            Value="1.15" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="PreviewChanged"/>
+                    <DockPanel Margin="0,12,0,0">
+                      <TextBlock x:Name="DwContrastValueText" DockPanel.Dock="Right"
+                                 Style="{StaticResource Caption}"/>
+                      <TextBlock Text="对比度"/>
+                    </DockPanel>
+                    <Slider x:Name="DwContrastSlider" Minimum="0.0" Maximum="2.0"
+                            Value="0.8" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="PreviewChanged"/>
+                  </StackPanel>
+                </Border>
+              </Grid>
+              <TextBlock Style="{StaticResource Caption}" Margin="0,12,0,0"
+                         Text="字体页的样张只模拟字体和笔画粗细。Gamma、对比度和 Hinting 的真实效果要在应用后重新打开程序才能看到。"/>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ Application rules ============ -->
+        <TabItem x:Name="ApplicationRulesTab">
+          <Grid Margin="40,32,40,24">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+              <TextBlock Text="应用规则" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="出现错字、闪退或乱码的程序可以单独处理。“不替换字体”保留渲染改进，只是不换字体，适合输入法和缓存字形的程序。"/>
+            </StackPanel>
+            <TextBox x:Name="RuleSearchBox" Grid.Row="1" Margin="0,20,0,12"
+                     TextChanged="RuleSearch_TextChanged"
+                     ToolTip="按程序名或规则搜索"/>
+            <Border Grid.Row="2" Style="{StaticResource Panel}" Padding="6">
+              <DataGrid x:Name="ApplicationRulesGrid"
+                        SelectionChanged="ApplicationRule_SelectionChanged">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="程序" Binding="{Binding ExecutableName}" Width="2*"/>
+                  <DataGridTextColumn Header="规则" Binding="{Binding ModeLabel}" Width="2*"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </Border>
+            <Border Grid.Row="3" Style="{StaticResource Panel}" Margin="0,12,0,0">
+              <StackPanel>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="200"/>
+                  </Grid.ColumnDefinitions>
+                  <TextBox x:Name="RuleExecutableBox" ToolTip="程序文件名，例如 chrome.exe"/>
+                  <Button Grid.Column="1" Content="选择程序…" Click="BrowseRuleExecutable_Click"
+                          Margin="8,0,0,0"/>
+                  <ComboBox x:Name="RuleModeSelector" Grid.Column="2" Margin="8,0,0,0">
+                    <ComboBoxItem Content="完全不处理" Tag="Blocked"/>
+                    <ComboBoxItem Content="只渲染，不替换字体" Tag="RenderOnly"/>
+                  </ComboBox>
+                </Grid>
+                <DockPanel Margin="0,14,0,0">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="删除规则" Click="RemoveApplicationRule_Click"/>
+                    <Button Content="保存规则" Click="SaveApplicationRule_Click"
+                            Style="{StaticResource AccentButton}" Margin="0"/>
+                  </StackPanel>
+                  <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center"
+                             Text="新打开的程序立即使用新规则；已经打开的程序要完全退出后再打开。"/>
+                </DockPanel>
+              </StackPanel>
+            </Border>
+          </Grid>
+        </TabItem>
+
+        <!-- ============ Effective applications ============ -->
+        <TabItem x:Name="EffectiveApplicationsTab">
+          <Grid Margin="40,32,40,24">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+              <TextBlock Text="已生效应用" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="已经加载 YMacType 的进程。不在列表里的程序没有被接管，原因通常写在日志里（受保护进程、被规则屏蔽，或启动早于服务）。"/>
+            </StackPanel>
+            <Grid Grid.Row="1" Margin="0,20,0,12">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <TextBlock Text="搜索" FontWeight="SemiBold"
-                         VerticalAlignment="Center"/>
-              <TextBox x:Name="EffectiveSearchBox"
-                       Grid.Column="2"
-                       MinHeight="36" Padding="10,6"
-                       TextChanged="EffectiveSearch_TextChanged"
-                       ToolTip="按应用名称、PID 或路径搜索"/>
-              <Button Grid.Column="3" Content="刷新"
-                      Click="RefreshEffective_Click"/>
+              <TextBox x:Name="EffectiveSearchBox" TextChanged="EffectiveSearch_TextChanged"
+                       ToolTip="按程序名、PID 或路径搜索"/>
+              <Button Grid.Column="1" Content="刷新" Click="RefreshEffective_Click" Margin="8,0,0,0"/>
             </Grid>
-          </Border>
-          <Border Grid.Row="2" Background="{StaticResource CardBrush}"
-                  CornerRadius="12" Padding="8">
-            <Grid>
-              <DataGrid x:Name="EffectiveApplicationsGrid"
-                        AutoGenerateColumns="False"
-                        IsReadOnly="True"
-                        CanUserAddRows="False"
-                        CanUserDeleteRows="False"
-                        HeadersVisibility="Column"
-                        GridLinesVisibility="Horizontal"
-                        BorderThickness="0"
-                        RowHeaderWidth="0">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="应用" Binding="{Binding Name}"
-                                      Width="2*"/>
-                  <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}"
-                                      Width="90"/>
-                  <DataGridTextColumn Header="架构" Binding="{Binding Architecture}"
-                                      Width="80"/>
-                  <DataGridTextColumn Header="路径" Binding="{Binding Path}"
-                                      Width="3*"/>
-                </DataGrid.Columns>
-              </DataGrid>
-              <TextBlock x:Name="NoEffectiveApplicationsText"
-                         Text="没有找到已生效的应用"
-                         Foreground="{StaticResource MutedBrush}"
-                         HorizontalAlignment="Center"
-                         VerticalAlignment="Center"
-                         Visibility="Collapsed"/>
-            </Grid>
-          </Border>
-        </Grid>
-      </TabItem>
-    </TabControl>
+            <Border Grid.Row="2" Style="{StaticResource Panel}" Padding="6">
+              <Grid>
+                <DataGrid x:Name="EffectiveApplicationsGrid">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="程序" Binding="{Binding Name}" Width="2*"/>
+                    <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="80"/>
+                    <DataGridTextColumn Header="架构" Binding="{Binding Architecture}" Width="70"/>
+                    <DataGridTextColumn Header="路径" Binding="{Binding Path}" Width="3*"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock x:Name="NoEffectiveApplicationsText"
+                           Text="还没有找到已生效的程序。确认服务在运行，然后重新打开要处理的程序。"
+                           Style="{StaticResource Caption}" MaxWidth="360" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Visibility="Collapsed"/>
+              </Grid>
+            </Border>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+              <Button Content="对选中程序：完全不处理" Tag="Blocked" Click="QuickRule_Click"/>
+              <Button Content="对选中程序：只渲染，不替换字体" Tag="RenderOnly" Click="QuickRule_Click"/>
+            </StackPanel>
+          </Grid>
+        </TabItem>
 
-    <Grid Grid.Row="4">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <TextBlock x:Name="ResultText" VerticalAlignment="Center"
-                 Foreground="{StaticResource MutedBrush}"
-                 Text="修改会自动备份，随时可以恢复。"/>
-      <StackPanel Grid.Column="1" Orientation="Horizontal">
-        <Button Content="恢复 macOS 推荐值" Click="Defaults_Click"/>
-        <Button x:Name="ApplyButton" Content="应用设置" Click="Apply_Click"
-                Background="{StaticResource AccentBrush}" Foreground="White"
-                FontWeight="SemiBold"/>
-      </StackPanel>
+        <!-- ============ Mojibake troubleshooting ============ -->
+        <TabItem x:Name="TroubleshootTab">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="40,32,40,32" MaxWidth="860" HorizontalAlignment="Left">
+              <TextBlock Text="乱码排查" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="“乱码”有三种来源，处理方法完全不同。先对照下面的样子判断属于哪一种。"/>
+
+              <Grid Margin="0,24,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="12"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="12"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <TextBlock Text="□□□ 或 ？？？" FontSize="22" Margin="0,0,0,10"/>
+                    <TextBlock Text="缺字" FontWeight="SemiBold"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                               Text="当前字体里没有这个字。检查替换字体链的第一个已安装字体是否完整。"/>
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <TextBlock Text="锟斤拷 浣犲ソ" FontSize="22" Margin="0,0,0,10"/>
+                    <TextBlock Text="编码错误" FontWeight="SemiBold"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                               Text="文字本身读错了，和字体无关，YMacType 无法修复。看下方“系统编码”。"/>
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="4" Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <TextBlock Text="字被换成别的字" FontSize="22" Margin="0,0,0,10"/>
+                    <TextBlock Text="字形错位" FontWeight="SemiBold"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                               Text="程序缓存了字形编号，替换字体后对不上。通常是 YMacType 造成的，用下方对比确认。"/>
+                  </StackPanel>
+                </Border>
+              </Grid>
+
+              <TextBlock Text="确认是不是 YMacType 造成的" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                  <TextBlock Style="{StaticResource Body}"
+                             Text="1. 选择出问题的程序，点“暂停处理”。2. 完全退出该程序再打开。3. 乱码消失说明是 YMacType 引起的，点“改为只渲染”试试；仍然乱码就点“恢复”，问题在别处。"/>
+                  <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="AbExecutableBox" ToolTip="程序文件名，例如 explorer.exe"/>
+                    <Button Grid.Column="1" Content="选择程序…" Click="BrowseAbExecutable_Click"
+                            Margin="8,0,0,0"/>
+                  </Grid>
+                  <WrapPanel Margin="0,12,0,0">
+                    <Button x:Name="AbPauseButton" Content="暂停处理" Click="AbPause_Click"
+                            Style="{StaticResource AccentButton}"/>
+                    <Button x:Name="AbRenderOnlyButton" Content="改为只渲染" Click="AbRenderOnly_Click"/>
+                    <Button x:Name="AbRestoreButton" Content="恢复" Click="AbRestore_Click"/>
+                  </WrapPanel>
+                  <TextBlock x:Name="AbStatusText" Style="{StaticResource Caption}" Margin="0,10,0,0"/>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="系统编码" Style="{StaticResource SectionTitle}" Margin="0,28,0,10"/>
+              <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                  <TextBlock x:Name="CodePageText" Style="{StaticResource Body}"/>
+                  <TextBlock x:Name="CodePageAdvice" Style="{StaticResource Caption}" Margin="0,8,0,0"/>
+                  <WrapPanel Margin="0,14,0,0">
+                    <Button Content="打开区域设置" Click="OpenRegionSettings_Click"/>
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+
+              <DockPanel Margin="0,28,0,10">
+                <Button DockPanel.Dock="Right" Content="刷新" Click="RefreshDiagnostics_Click" Margin="0"/>
+                <TextBlock Text="最近 24 小时的诊断记录" Style="{StaticResource SectionTitle}"
+                           VerticalAlignment="Center"/>
+              </DockPanel>
+              <Border Style="{StaticResource Panel}" Padding="6">
+                <Grid MinHeight="120">
+                  <DataGrid x:Name="DiagnosticsGrid" MaxHeight="360">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="时间" Binding="{Binding Time}" Width="130"/>
+                      <DataGridTextColumn Header="程序" Binding="{Binding Process}" Width="140"/>
+                      <DataGridTextColumn Header="说明" Binding="{Binding Summary}" Width="*">
+                        <DataGridTextColumn.ElementStyle>
+                          <Style TargetType="TextBlock">
+                            <Setter Property="TextWrapping" Value="Wrap"/>
+                            <Setter Property="Margin" Value="0,8"/>
+                          </Style>
+                        </DataGridTextColumn.ElementStyle>
+                      </DataGridTextColumn>
+                    </DataGrid.Columns>
+                  </DataGrid>
+                  <TextBlock x:Name="NoDiagnosticsText" Style="{StaticResource Caption}"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Text="没有警告或错误。" Visibility="Collapsed"/>
+                </Grid>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+      </TabControl>
+
+      <!-- Footer: only the font and rendering pages have pending changes to apply. -->
+      <Border Grid.Row="1" x:Name="ApplyBar" Background="{DynamicResource SurfaceBrush}"
+              BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
+              Padding="40,12">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock x:Name="ResultText" Style="{StaticResource Caption}" FontSize="12.5"
+                     VerticalAlignment="Center"
+                     Text="每次应用前会自动备份配置。"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" x:Name="ApplyButtons">
+            <Button Content="恢复推荐值" Click="Defaults_Click"/>
+            <Button x:Name="ApplyButton" Content="应用设置" Click="Apply_Click"
+                    Style="{StaticResource AccentButton}" Margin="0"/>
+          </StackPanel>
+        </Grid>
+      </Border>
     </Grid>
   </Grid>
 </Window>

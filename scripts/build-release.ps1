@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
-    [string]$Workspace = (Split-Path -Parent $PSScriptRoot)
+    [string]$Workspace = (Split-Path -Parent $PSScriptRoot),
+    # CI links freshly built third-party libraries whose PDBs are not shipped,
+    # which produces LNK4099 noise; local release builds stay warning-clean.
+    [switch]$AllowCompilerWarnings,
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +33,7 @@ foreach ($platform in @('Win32', 'x64')) {
     }
     $compilerIssues = Select-String -LiteralPath $log `
         -Pattern '(warning|error) (C|LNK)\d+'
-    if ($compilerIssues) {
+    if ($compilerIssues -and -not $AllowCompilerWarnings) {
         throw "Release build was not warning-clean for $platform. See $log"
     }
 }
@@ -37,7 +41,14 @@ foreach ($platform in @('Win32', 'x64')) {
 $controlPanel = Join-Path $Workspace 'control-panel\YMacType.Settings.csproj'
 $controlPanelPublish = Join-Path $Workspace (
     'control-panel\bin\Release\net48\release-publish')
-& dotnet publish $controlPanel -c Release `
+$versionArguments = @()
+if ($Version) {
+    $versionArguments = @(
+        "-p:Version=$Version",
+        "-p:FileVersion=$Version",
+        "-p:AssemblyVersion=$Version")
+}
+& dotnet publish $controlPanel -c Release @versionArguments `
     -o $controlPanelPublish `
     -p:DebugType=None `
     -p:DebugSymbols=false `

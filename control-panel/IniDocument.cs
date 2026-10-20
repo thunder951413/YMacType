@@ -9,17 +9,66 @@ namespace YMacType.Settings
 internal sealed class IniDocument
 {
     private readonly List<string> _lines;
+    private readonly Encoding _encoding;
 
-    private IniDocument(IEnumerable<string> lines)
+    // The core's INI parser only recognises UTF-16 LE (with BOM) and UTF-8 with
+    // BOM. Anything else is decoded with the system ANSI code page, which turns
+    // Chinese font names into mojibake. New files are therefore always written
+    // as UTF-8 with BOM, and UTF-16 files keep their encoding.
+    private static readonly Encoding Utf8WithBom =
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+
+    private IniDocument(IEnumerable<string> lines, Encoding encoding)
     {
         _lines = lines.ToList();
+        _encoding = encoding;
     }
 
     public static IniDocument Load(string path)
     {
-        return new IniDocument(File.Exists(path)
-            ? File.ReadAllLines(path)
-            : Array.Empty<string>());
+        if (!File.Exists(path))
+            return new IniDocument(Array.Empty<string>(), Utf8WithBom);
+        var bytes = File.ReadAllBytes(path);
+        var encoding = DetectEncoding(bytes, out var preambleLength);
+        var text = encoding.GetString(
+            bytes, preambleLength, bytes.Length - preambleLength);
+        var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+        if (lines.Count > 0 && lines[lines.Count - 1].Length == 0)
+            lines.RemoveAt(lines.Count - 1);
+        return new IniDocument(
+            lines,
+            encoding is UnicodeEncoding ? encoding : Utf8WithBom);
+    }
+
+    /// <summary>
+    /// True when the core would decode this file correctly: it has a UTF-8 or
+    /// UTF-16 BOM, or it only contains ASCII.
+    /// </summary>
+    public static bool HasSafeEncoding(string path)
+    {
+        if (!File.Exists(path))
+            return true;
+        var bytes = File.ReadAllBytes(path);
+        DetectEncoding(bytes, out var preambleLength);
+        return preambleLength > 0 || bytes.All(value => value < 0x80);
+    }
+
+    private static Encoding DetectEncoding(byte[] bytes, out int preambleLength)
+    {
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+        {
+            preambleLength = 2;
+            return new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
+        }
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB &&
+            bytes[2] == 0xBF)
+        {
+            preambleLength = 3;
+            return Utf8WithBom;
+        }
+        preambleLength = 0;
+        // BOM-less files written by older builds of this panel are UTF-8.
+        return new UTF8Encoding(false);
     }
 
     public string Get(string section, string key, string fallback = "")
@@ -132,10 +181,10 @@ internal sealed class IniDocument
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
         var temporary = path + ".tmp";
-        File.WriteAllLines(
+        File.WriteAllText(
             temporary,
-            _lines,
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            string.Join("\r\n", _lines) + "\r\n",
+            _encoding);
         if (File.Exists(path))
             File.Replace(temporary, path, null);
         else

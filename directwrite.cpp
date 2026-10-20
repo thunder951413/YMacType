@@ -1784,10 +1784,16 @@ HRESULT WINAPI IMPL_CreateFontFace(IDWriteFont* self,
 		if (pSettings->CopyForceFont(lf, lf))
 		{
 			IDWriteFont* writefont = NULL;
-			if (FAILED(g_pGdiInterop->CreateFontFromLOGFONT(&lf, &writefont)))
+			if (FAILED(g_pGdiInterop->CreateFontFromLOGFONT(&lf, &writefont)) || !writefont)
 				return ret;
-			(*fontFace)->Release();
-			ORIG_CreateFontFace(writefont, fontFace);
+			// Build the replacement first and only swap it in on success.
+			// Releasing the original before the replacement exists handed the
+			// caller a dangling face whenever the substitute could not be built.
+			IDWriteFontFace* replacement = NULL;
+			if (SUCCEEDED(ORIG_CreateFontFace(writefont, &replacement)) && replacement) {
+				(*fontFace)->Release();
+				*fontFace = replacement;
+			}
 			writefont->Release();
 		}
 	}
@@ -1807,9 +1813,10 @@ bool SubstituteDWriteFont3(__out IDWriteFontFace3** fontFace3)
 			return false;
 
 		CComPtr<IDWriteFontFace> fontFaceOut;
-		ORIG_CreateFontFace(writefont, &fontFaceOut);
-		IDWriteFontFace3* fontFace3Out;
-		if (FAILED(fontFaceOut->QueryInterface(&fontFace3Out)))
+		if (FAILED(ORIG_CreateFontFace(writefont, &fontFaceOut)) || !fontFaceOut)
+			return false;
+		IDWriteFontFace3* fontFace3Out = NULL;
+		if (FAILED(fontFaceOut->QueryInterface(&fontFace3Out)) || !fontFace3Out)
 			return false;
 		
 		(*fontFace3)->Release();
