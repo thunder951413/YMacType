@@ -81,6 +81,7 @@ internal static class Installer
                 Path.GetFullPath(destination),
                 StringComparison.OrdinalIgnoreCase))
         {
+            StopOwnService();
             StopInstalledTray(destination);
             File.Copy(source, destination, true);
         }
@@ -206,6 +207,49 @@ internal static class Installer
             WorkingDirectory = InstallDirectory,
             UseShellExecute = true
         });
+    }
+
+    // The YMacType service runs from the panel executable that is about to be
+    // overwritten. Stop it cleanly (a stop does not trigger the restart
+    // actions); ConfigureService starts it again afterwards.
+    private static void StopOwnService()
+    {
+        var config = RunScCapture("qc MacType");
+        if (config.IndexOf(
+                "YMacType.Settings.exe",
+                StringComparison.OrdinalIgnoreCase) < 0)
+            return;
+        RunScCapture("stop MacType");
+        for (var attempt = 0; attempt != 40 && ServiceRunning(); ++attempt)
+            System.Threading.Thread.Sleep(250);
+    }
+
+    private static string RunScCapture(string arguments)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    "sc.exe"),
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            if (process == null)
+                return "";
+            var output = process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            process.WaitForExit(15000);
+            return output;
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static void StopInstalledTray(string panelPath)

@@ -915,7 +915,6 @@ static HRESULT RunHookHost(DWORD parentProcessId)
 int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 {
 	_CrtSetDbgFlag(_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) | _CRTDBG_LEAK_CHECK_DF);
-	OleInitialize(NULL);
 
 	bool hookMode = false;
 	DWORD hookParentProcessId = 0;
@@ -931,6 +930,10 @@ int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 			LocalFree(parsed);
 		}
 	}
+
+	// The hook host never creates windows; keep OLE out of that process.
+	if (!hookMode)
+		OleInitialize(NULL);
 
 	WCHAR path[MAX_PATH];
 	if (GetModuleFileNameW(NULL, path, _countof(path))) {
@@ -978,7 +981,8 @@ int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 		}
 	}
 
-	OleUninitialize();
+	if (!hookMode)
+		OleUninitialize();
 	if (g_loaderFailureStage) {
 		MacTypeSetLastDiagnostic(
 			MacTypeDiagnosticCode::LoaderFailure,

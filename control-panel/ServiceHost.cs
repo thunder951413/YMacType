@@ -111,6 +111,8 @@ internal sealed class MacTypeService : ServiceBase
             try
             {
                 var active = ActiveSessions();
+                if (active == null)
+                    return; // enumeration failed: keep the current hooks
                 var wanted = new HashSet<string>(
                     StringComparer.OrdinalIgnoreCase);
                 foreach (var session in active)
@@ -197,12 +199,12 @@ internal sealed class MacTypeService : ServiceBase
         }
     }
 
-    private static List<int> ActiveSessions()
+    private static List<int>? ActiveSessions()
     {
         var result = new List<int>();
         if (!NativeMethods.WTSEnumerateSessionsW(
                 IntPtr.Zero, 0, 1, out var buffer, out var count))
-            return result;
+            return null;
         try
         {
             var size = Marshal.SizeOf(typeof(NativeMethods.WtsSessionInfo));
