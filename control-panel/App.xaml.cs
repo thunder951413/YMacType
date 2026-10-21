@@ -122,11 +122,20 @@ namespace YMacType.Settings
                         "YMacType 安装完成",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
+                    try
+                    {
+                        Installer.OpenInstalledPanel();
+                    }
+                    catch (System.Exception openError)
+                    {
+                        PanelLog.Write("could not open installed panel: " + openError);
+                    }
                     Shutdown(0);
                     return;
                 }
                 catch (System.Exception exception)
                 {
+                    PanelLog.Write("install failed: " + exception);
                     MessageBox.Show(
                         exception.Message,
                         "YMacType 安装失败",

@@ -215,6 +215,19 @@ internal static class Installer
         }
     }
 
+    // Opens the installed panel window (it reuses the tray instance started
+    // by the installer when one is already running).
+    public static void OpenInstalledPanel()
+    {
+        var panel = SafeInstallPath("YMacType.Settings.exe");
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = panel,
+            WorkingDirectory = InstallDirectory,
+            UseShellExecute = true
+        });
+    }
+
     private static void StartTray(string panelPath)
     {
         Process.Start(new ProcessStartInfo

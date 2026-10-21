@@ -23,9 +23,50 @@ internal static class Program
             return 0;
         }
 
-        var application = new App();
-        application.InitializeComponent();
-        return application.Run();
+        var quiet = Array.Exists(
+            args,
+            argument => argument.Equals(
+                "--tray",
+                StringComparison.OrdinalIgnoreCase));
+        PanelLog.Write(
+            "panel starting, version " +
+            typeof(Program).Assembly.GetName().Version +
+            ", args [" + string.Join(" ", args) + "]");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            PanelLog.Write("unhandled exception: " + e.ExceptionObject);
+        try
+        {
+            var application = new App();
+            application.DispatcherUnhandledException += (_, e) =>
+            {
+                PanelLog.Write("UI exception: " + e.Exception);
+                if (!quiet)
+                    System.Windows.MessageBox.Show(
+                        e.Exception.Message + "\n\n详细信息已写入 " +
+                        PanelLog.Path,
+                        "YMacType 设置出错",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                e.Handled = true;
+                // A failure before the window exists would leave an invisible
+                // process behind; end it instead.
+                if (application.MainWindow == null)
+                    application.Shutdown(1);
+            };
+            application.InitializeComponent();
+            return application.Run();
+        }
+        catch (Exception exception)
+        {
+            PanelLog.Write("panel failed to start: " + exception);
+            System.Windows.MessageBox.Show(
+                "设置面板启动失败：" + exception.Message + "\n\n详细信息已写入 " +
+                PanelLog.Path,
+                "YMacType 设置",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+            return 1;
+        }
     }
 }
 
