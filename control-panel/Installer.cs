@@ -41,6 +41,7 @@ internal static class Installer
                 Environment.SpecialFolder.CommonApplicationData),
             "MacType", "CleanupBackups", stamp);
         Directory.CreateDirectory(backupRoot);
+        Directory.CreateDirectory(InstallDirectory);
 
         var removed = 0;
         foreach (var name in ObsoleteFiles)
@@ -86,6 +87,8 @@ internal static class Installer
             File.Copy(source, destination, true);
         }
 
+        var payload = InstallPayload(
+            Path.GetDirectoryName(source) ?? "", backupRoot, stamp);
         InstallBundledProfile(source, backupRoot);
         ReplaceStartMenuShortcuts(destination, backupRoot);
         RemoveLegacyUninstallEntry(backupRoot);
@@ -99,6 +102,7 @@ internal static class Installer
             : "服务模式：Automatic / LocalSystem";
         return
             $"新设置面板已安装。\n\n" +
+            $"已更新核心文件：{payload} 个\n" +
             $"已删除旧组件：{removed} 个\n" +
             $"已清理失效的旧卸载入口\n" +
             $"{mode}\n" +
@@ -281,6 +285,70 @@ internal static class Installer
         }
     }
 
+    private static readonly string[] PayloadFiles =
+    {
+        "MacType.Core.dll",
+        "MacType64.Core.dll",
+        "MacLoader.exe",
+        "MacLoader64.exe"
+    };
+
+    // Copies the core DLLs and loaders that sit next to the installer into
+    // the install directory. A loaded DLL cannot be overwritten but can be
+    // renamed, so the old file is moved aside first (and removed at the next
+    // install); processes that already use it keep working until they exit.
+    private static int InstallPayload(
+        string sourceDirectory,
+        string backupRoot,
+        string stamp)
+    {
+        if (string.Equals(
+                Path.GetFullPath(sourceDirectory).TrimEnd('\\'),
+                Path.GetFullPath(InstallDirectory).TrimEnd('\\'),
+                StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        var installed = 0;
+        foreach (var name in PayloadFiles)
+        {
+            var from = Path.Combine(sourceDirectory, name);
+            if (!File.Exists(from))
+                continue;
+            var to = SafeInstallPath(name);
+            string? retired = null;
+            if (File.Exists(to))
+            {
+                File.Copy(to, Path.Combine(backupRoot, name), true);
+                retired = SafeInstallPath(
+                    "." + name + ".ymactype-old-" + stamp);
+                File.Move(to, retired);
+            }
+            try
+            {
+                File.Copy(from, to, false);
+            }
+            catch
+            {
+                if (retired != null && !File.Exists(to))
+                    File.Move(retired, to);
+                throw;
+            }
+            if (retired != null)
+            {
+                try
+                {
+                    File.Delete(retired);
+                }
+                catch
+                {
+                    // Still loaded; the next install removes it.
+                }
+            }
+            ++installed;
+        }
+        return installed;
+    }
+
     private static void InstallBundledProfile(
         string executablePath,
         string backupRoot)
@@ -303,10 +371,11 @@ internal static class Installer
                 true);
         File.Copy(bundledProfile, destination, true);
 
+        // A fresh machine has no MacType.ini yet; Load returns an empty
+        // document and Save creates the file (UTF-16 with BOM, as the core
+        // expects for the main configuration).
         var mainConfig = SafeInstallPath("MacType.ini");
-        if (!File.Exists(mainConfig))
-            throw new FileNotFoundException("找不到 MacType.ini。", mainConfig);
-        var document = IniDocument.Load(mainConfig);
+        var document = IniDocument.Load(mainConfig, preferUtf16: true);
         document.Set(
             "General",
             "AlternativeFile",

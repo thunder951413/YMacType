@@ -24,6 +24,7 @@
         <StackPanel DockPanel.Dock="Top" Margin="10,0,0,22">
           <TextBlock Text="YMacType" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="Windows 字体渲染" Style="{StaticResource Caption}"/>
+          <TextBlock x:Name="VersionText" Style="{StaticResource Caption}" FontSize="11"/>
         </StackPanel>
         <Border DockPanel.Dock="Bottom" Padding="10,8" CornerRadius="6"
                 x:Name="ServiceBadgeBorder" Background="{DynamicResource GoodSoftBrush}">

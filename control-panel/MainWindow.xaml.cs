@@ -95,6 +95,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        VersionText.Text = "版本 " +
+            typeof(MainWindow).Assembly.GetName().Version;
         FontChainList.ItemsSource = _chain;
         var preferredIcon = Path.Combine(
             InstallDirectory,
