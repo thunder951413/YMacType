@@ -1,7 +1,7 @@
 <Window x:Class="YMacType.Settings.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="YMacType 设置" Width="1040" Height="760"
+        Title="YMacType 设置" Icon="app.ico" Width="1040" Height="760"
         MinWidth="880" MinHeight="620"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource PaperBrush}"

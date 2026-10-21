@@ -98,18 +98,10 @@ public partial class MainWindow : Window
         VersionText.Text = "版本 " +
             typeof(MainWindow).Assembly.GetName().Version;
         FontChainList.ItemsSource = _chain;
-        var preferredIcon = Path.Combine(
-            InstallDirectory,
-            "MacTray.exe");
-        var executable = File.Exists(preferredIcon)
-            ? preferredIcon
-            : Process.GetCurrentProcess().MainModule?.FileName;
-        var icon = !string.IsNullOrEmpty(executable)
-            ? System.Drawing.Icon.ExtractAssociatedIcon(executable)
-            : null;
+        var icon = LoadTrayIcon();
         _trayIcon = new Forms.NotifyIcon
         {
-            Icon = icon ?? System.Drawing.SystemIcons.Application,
+            Icon = icon,
             Text = "YMacType 字体渲染",
             Visible = true
         };
@@ -155,6 +147,31 @@ public partial class MainWindow : Window
     private void Window_SourceInitialized(object sender, EventArgs e)
     {
         ApplyTitleBarTheme();
+    }
+
+    // The tray icon comes from the embedded app.ico at the size the tray
+    // actually uses (16 px at 100% scale, larger on high-DPI displays), so it
+    // is not a blurry downscale of the 32 px icon.
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            using var stream = typeof(MainWindow).Assembly
+                .GetManifestResourceStream("app.ico");
+            if (stream != null)
+                return new System.Drawing.Icon(
+                    stream, Forms.SystemInformation.SmallIconSize);
+        }
+        catch
+        {
+            // Fall through to the executable's own icon.
+        }
+
+        var executable = Process.GetCurrentProcess().MainModule?.FileName;
+        var associated = !string.IsNullOrEmpty(executable)
+            ? System.Drawing.Icon.ExtractAssociatedIcon(executable)
+            : null;
+        return associated ?? System.Drawing.SystemIcons.Application;
     }
 
     public void OnThemeChanged()

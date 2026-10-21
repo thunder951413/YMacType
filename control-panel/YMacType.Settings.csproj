@@ -9,14 +9,20 @@
     <RootNamespace>YMacType.Settings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>YMacType.Settings.Program</StartupObject>
-    <Version>1.2026.1020.7</Version>
-    <FileVersion>1.2026.1020.7</FileVersion>
-    <AssemblyVersion>1.2026.1020.7</AssemblyVersion>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.2026.1020.8</Version>
+    <FileVersion>1.2026.1020.8</FileVersion>
+    <AssemblyVersion>1.2026.1020.8</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Window icon (pack URI) and the tray icon (read by size at runtime). -->
+    <Resource Include="app.ico" />
+    <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
   </ItemGroup>
 </Project>
