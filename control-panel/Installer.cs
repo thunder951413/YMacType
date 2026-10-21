@@ -456,18 +456,13 @@ internal static class Installer
             File.Delete(shortcut);
         }
 
-        var shellType = Type.GetTypeFromProgID("WScript.Shell")
-            ?? throw new InvalidOperationException("无法创建开始菜单快捷方式。");
-        dynamic shell = Activator.CreateInstance(shellType);
-        if (shell == null)
-            throw new InvalidOperationException("无法启动快捷方式服务。");
-        dynamic shortcutObject = shell.CreateShortcut(
-            Path.Combine(startMenu, "YMacType 设置.lnk"));
-        shortcutObject.TargetPath = panelPath;
-        shortcutObject.WorkingDirectory = InstallDirectory;
-        shortcutObject.Description = "YMacType 字体与渲染设置";
-        shortcutObject.IconLocation = panelPath + ",0";
-        shortcutObject.Save();
+        ShortcutWriter.Create(
+            Path.Combine(startMenu, "YMacType 设置.lnk"),
+            panelPath,
+            "",
+            InstallDirectory,
+            panelPath,
+            "YMacType 字体与渲染设置");
     }
 
     // Makes sure a "MacType" service exists. An existing one (the original

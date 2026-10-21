@@ -219,12 +219,6 @@ public partial class MainWindow
             shortcutArguments = arguments;
         }
 
-        var shellType = Type.GetTypeFromProgID("WScript.Shell")
-            ?? throw new InvalidOperationException("无法创建快捷方式。");
-        dynamic shell = Activator.CreateInstance(shellType);
-        if (shell == null)
-            throw new InvalidOperationException("无法启动快捷方式服务。");
-
         var invalid = System.IO.Path.GetInvalidFileNameChars();
         var safeName = new string(
             app.Name.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c)
@@ -233,13 +227,13 @@ public partial class MainWindow
             Environment.SpecialFolder.DesktopDirectory);
         var shortcutPath = System.IO.Path.Combine(
             desktop, safeName + " (YMacType).lnk");
-        dynamic link = shell.CreateShortcut(shortcutPath);
-        link.TargetPath = shortcutTarget;
-        link.Arguments = shortcutArguments;
-        link.WorkingDirectory = System.IO.Path.GetDirectoryName(target);
-        link.IconLocation = target + ",0";
-        link.Description = app.Name + "（通过 YMacType 启动）";
-        link.Save();
+        ShortcutWriter.Create(
+            shortcutPath,
+            shortcutTarget,
+            shortcutArguments,
+            System.IO.Path.GetDirectoryName(target) ?? "",
+            target,
+            app.Name + "（通过 YMacType 启动）");
         return shortcutPath;
     }
 
