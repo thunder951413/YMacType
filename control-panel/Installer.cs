@@ -88,18 +88,22 @@ internal static class Installer
         InstallBundledProfile(source, backupRoot);
         ReplaceStartMenuShortcuts(destination, backupRoot);
         RemoveLegacyUninstallEntry(backupRoot);
-        ConfigureService();
+        var serviceConfigured = ConfigureService();
         ConfigureTrayStartup(destination);
         StartTray(destination);
 
+        var mode = serviceConfigured
+            ? "服务模式：Automatic / LocalSystem"
+            : "未检测到 MacType 服务，已按托盘模式运行（MacTray.exe）。\n" +
+              "如需服务模式，请在 MacType 安装器或 MacType Tuner 中启用“服务模式”。";
         return
             $"新设置面板已安装。\n\n" +
             $"已删除旧组件：{removed} 个\n" +
             $"已清理失效的旧卸载入口\n" +
-            $"服务模式：Automatic / LocalSystem\n" +
+            $"{mode}\n" +
             $"托盘面板：登录时自动启动\n" +
             $"备份位置：{backupRoot}\n\n" +
-            "MacTray.exe 仅作为无界面的注入服务保留。";
+            "MacTray.exe 仅作为无界面的注入宿主保留。";
     }
 
     private static void ConfigureTrayStartup(string panelPath)
@@ -340,8 +344,18 @@ internal static class Installer
         shortcutObject.Save();
     }
 
-    private static void ConfigureService()
+    // Returns true when the MacType service exists and was configured.
+    // When it does not exist (MacType was installed in tray or registry
+    // mode) the service is left alone and MacTray.exe is started instead,
+    // so installation still succeeds.
+    private static bool ConfigureService()
     {
+        if (!ServiceInstalled())
+        {
+            StartMacTrayIfNeeded();
+            return false;
+        }
+
         RunSc("config MacType start= auto obj= LocalSystem");
         RunSc(
             "failure MacType reset= 86400 " +
@@ -352,6 +366,63 @@ internal static class Installer
             "\"YMacType Windows 11 font rendering injection service\"");
         if (!ServiceRunning())
             RunSc("start MacType");
+        return true;
+    }
+
+    // sc.exe reports error 1060 when no service with that name exists.
+    internal static bool ServiceInstalled()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    "sc.exe"),
+                Arguments = "query MacType",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            if (process == null)
+                return false;
+            process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(5000))
+                return false;
+            return process.ExitCode != 1060;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Tray mode: MacTray.exe injects the DLL for the logged-in user.
+    internal static bool IsMacTrayRunning()
+    {
+        var processes = Process.GetProcessesByName("MacTray");
+        var running = processes.Length != 0;
+        foreach (var process in processes)
+            process.Dispose();
+        return running;
+    }
+
+    internal static bool StartMacTrayIfNeeded()
+    {
+        var tray = SafeInstallPath("MacTray.exe");
+        if (!File.Exists(tray))
+            return false;
+        if (IsMacTrayRunning())
+            return true;
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = tray,
+            WorkingDirectory = InstallDirectory,
+            UseShellExecute = true
+        });
+        return true;
     }
 
     private static void RunSc(string arguments)

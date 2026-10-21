@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     private bool _refreshingEffectiveApplications;
     private bool _effectiveScanned;
     private bool _serviceRunning;
+    private bool _serviceInstalled = true;
     private HashSet<string> _installedFonts =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly ObservableCollection<FontChainEntry> _chain =
@@ -871,10 +872,17 @@ public partial class MainWindow : Window
         var items = new List<HealthItem>();
         var running = _serviceRunning;
         items.Add(running
-            ? HealthItem.Good("字体服务正在运行", "新打开的程序会自动加载 YMacType。")
-            : HealthItem.Bad("字体服务没有运行",
-                "没有服务，所有程序都不会被处理。",
-                "启动服务", "service"));
+            ? HealthItem.Good(
+                _serviceInstalled ? "字体服务正在运行" : "托盘模式正在运行",
+                _serviceInstalled
+                    ? "新打开的程序会自动加载 YMacType。"
+                    : "新打开的程序会自动加载 YMacType。未安装 MacType 服务，当前由 MacTray.exe 注入，登录后需要它保持运行。")
+            : HealthItem.Bad(
+                _serviceInstalled ? "字体服务没有运行" : "MacType 没有运行",
+                _serviceInstalled
+                    ? "没有服务，所有程序都不会被处理。"
+                    : "这台电脑没有安装 MacType 服务，也没有运行 MacTray.exe，所有程序都不会被处理。",
+                _serviceInstalled ? "启动服务" : "启动 MacType", "service"));
 
         var savedChain = ParseChain(IniDocument.Load(ActiveProfile).Get(
             "FontSubstitutes", "Microsoft YaHei", ""));
@@ -1795,6 +1803,23 @@ public partial class MainWindow : Window
             ResultText.Text = "正在检查并修复服务…";
             await Task.Run(() =>
             {
+                if (!Installer.ServiceInstalled())
+                {
+                    // No MacType service on this PC (tray/registry mode):
+                    // run the tray host instead of failing.
+                    if (!Installer.StartMacTrayIfNeeded())
+                        throw new FileNotFoundException(
+                            "没有安装 MacType 服务，且在安装目录中找不到 MacTray.exe。\n" +
+                            "请先安装原版 MacType，或在其安装器 / MacType Tuner 中启用“服务模式”。");
+                    for (var wait = 0; wait != 40; ++wait)
+                    {
+                        if (Installer.IsMacTrayRunning())
+                            return;
+                        System.Threading.Thread.Sleep(250);
+                    }
+                    throw new TimeoutException("MacTray.exe 未能在 10 秒内启动。");
+                }
+
                 RunSc("config MacType start= auto obj= LocalSystem");
                 RunSc(
                     "failure MacType reset= 86400 " +
@@ -1810,7 +1835,9 @@ public partial class MainWindow : Window
                 }
                 throw new TimeoutException("MacType 服务未能在 10 秒内进入运行状态。");
             });
-            ResultText.Text = "服务已修复并正常运行。";
+            ResultText.Text = Installer.ServiceInstalled()
+                ? "服务已修复并正常运行。"
+                : "未检测到 MacType 服务，已改用托盘模式（MacTray.exe）运行。";
         }
         catch (Exception exception)
         {
@@ -1830,7 +1857,9 @@ public partial class MainWindow : Window
 
     private void RefreshServiceBadge(bool running)
     {
-        ServiceBadge.Text = running ? "服务正在运行" : "服务未运行";
+        ServiceBadge.Text = _serviceInstalled
+            ? (running ? "服务正在运行" : "服务未运行")
+            : (running ? "托盘模式运行中" : "未运行（未安装服务）");
         ServiceDot.SetResourceReference(
             System.Windows.Shapes.Shape.FillProperty, running ? "GoodBrush" : "BadBrush");
         ServiceBadgeBorder.SetResourceReference(
@@ -1839,7 +1868,11 @@ public partial class MainWindow : Window
 
     private void RefreshStatus()
     {
-        var running = ServiceRunning();
+        var installed = Installer.ServiceInstalled();
+        _serviceInstalled = installed;
+        var running = installed
+            ? ServiceRunning()
+            : Installer.IsMacTrayRunning();
         _serviceRunning = running;
         RefreshServiceBadge(running);
         var covered = _effectiveProcesses.Count;
@@ -1847,8 +1880,11 @@ public partial class MainWindow : Window
             .Select(process => process.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
+        var modeText = installed
+            ? (running ? "自动启动 · LocalSystem · 运行中" : "已停止")
+            : (running ? "未安装服务 · 托盘模式（MacTray.exe）运行中" : "未安装服务，MacTray.exe 未运行");
         StatusText.Text =
-            $"服务      {(running ? "自动启动 · LocalSystem · 运行中" : "已停止")}\n" +
+            $"服务      {modeText}\n" +
             $"配置      {ActiveProfile}\n" +
             $"已加载    {covered} 个进程（{names} 个程序）\n" +
             $"日志      {LogDirectory}";
