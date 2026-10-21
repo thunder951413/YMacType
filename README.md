@@ -52,6 +52,27 @@ is intentionally retained only as the headless x86/x64 injection service host;
 removing it would reduce coverage for applications that cannot be attached
 after startup.
 
+If no `MacType` service exists (the original MacTray service was never
+installed), `YMacType.Settings.exe --install` and the overview page's
+"start and repair service" button register YMacType's own service host:
+`YMacType.Settings.exe --service`, Automatic, LocalSystem. For every
+interactive session it starts `MacLoader.exe --hook <pid>` and
+`MacLoader64.exe --hook <pid>` with a SYSTEM token on the session's default
+desktop. Each hook host installs the global `WH_GETMESSAGE` hook that makes
+Windows load `MacType(64).Core.dll` into every GUI process of its
+architecture, including elevated ones, and exits when the service stops. The
+service refuses to run from any directory other than `C:\Program Files\MacType`
+and writes `C:\ProgramData\MacType\Logs\service.log`. An existing `MacType`
+service, such as the original one, is never replaced.
+
+The Application launcher page creates desktop shortcuts that start a program
+through `MacLoader`, so the core is loaded at the program's entry point. For
+Chromium browsers the shortcut also passes
+`--disable-features=RendererCodeIntegrity`: official Chrome renderers otherwise
+reject unsigned modules. That removes one layer of renderer sandbox
+protection and lets other injectors in as well; the page says so before the
+shortcut is created.
+
 The default `YMacType-macOS.ini` profile substitutes common Windows UI and
 Chinese fonts with PingFang SC and uses grayscale, low-hinting rendering.
 Applications with protected processes, private renderers, GPU-only text, or

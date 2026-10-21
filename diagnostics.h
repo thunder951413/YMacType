@@ -26,6 +26,7 @@ enum class MacTypeDiagnosticCode : DWORD
 	ChildInjectionFailed,
 	MitigationBlocked = 500,
 	LoaderFailure = 600,
+	HookHostRunning,
 	FontSubstituteTargetMissing = 700,
 	FontSubstituteSummary,
 };

@@ -66,6 +66,10 @@
             <TextBlock Text="&#xE90F;" Style="{StaticResource Icon}" Width="26"/>
             <TextBlock Text="乱码排查"/>
           </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE8A7;" Style="{StaticResource Icon}" Width="26"/>
+            <TextBlock Text="应用启动器"/>
+          </StackPanel>
         </ListBox>
       </DockPanel>
     </Border>
@@ -678,6 +682,64 @@
               </Border>
             </StackPanel>
           </ScrollViewer>
+        </TabItem>
+
+        <!-- ============ Application launchers ============ -->
+        <TabItem x:Name="LauncherTab">
+          <Grid Margin="40,32,40,24">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+              <TextBlock Text="应用启动器" Style="{StaticResource PageTitle}"/>
+              <TextBlock Style="{StaticResource PageLead}"
+                         Text="有些程序必须在启动那一刻就加载 YMacType 才能生效，Chrome 一类浏览器的网页渲染器还会拒绝加载未签名的模块。选一个程序，生成桌面快捷方式，以后用这个快捷方式打开它。"/>
+              <Border Style="{StaticResource Panel}" Margin="0,16,0,12"
+                      Background="{DynamicResource WarnSoftBrush}">
+                <TextBlock TextWrapping="Wrap" FontSize="12.5"
+                           Foreground="{DynamicResource WarnBrush}"
+                           Text="Chrome、Edge 等浏览器的快捷方式会加上 --disable-features=RendererCodeIntegrity，关掉网页渲染器“只加载微软签名模块”的保护，YMacType 才能处理网页正文。这会少一层沙箱防御，也会让其它注入软件进得去渲染器，请自行权衡。参数只对用这个快捷方式启动的浏览器生效；浏览器已经在运行时，新窗口会交给旧进程，需要先完全退出（包括托盘里的后台进程）。"/>
+              </Border>
+            </StackPanel>
+            <Border Grid.Row="1" Style="{StaticResource Panel}" Padding="6">
+              <DataGrid x:Name="LauncherGrid" SelectionChanged="LauncherGrid_SelectionChanged">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="程序" Binding="{Binding Name}" Width="*"/>
+                  <DataGridTextColumn Header="状态" Binding="{Binding StatusLabel}" Width="2*"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </Border>
+            <Border Grid.Row="2" Style="{StaticResource Panel}" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock x:Name="LauncherNoteText" Style="{StaticResource Caption}"
+                           TextWrapping="Wrap" Margin="0,0,0,10"
+                           Text="从上面选一个程序，或者选择其它程序。"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="启动参数" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                  <TextBox x:Name="LauncherArgsBox" Grid.Column="1"
+                           ToolTip="添加到程序后面的命令行参数，可以留空"/>
+                </Grid>
+                <CheckBox x:Name="LauncherViaLoader" IsChecked="True" Margin="0,12,0,0"
+                          Content="通过 MacLoader 启动（在程序入口处加载，覆盖最早，推荐）"/>
+                <DockPanel Margin="0,14,0,0">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="选择其它程序…" Click="BrowseLauncher_Click"/>
+                    <Button x:Name="CreateShortcutButton" Content="创建桌面快捷方式"
+                            Click="CreateShortcut_Click" IsEnabled="False"
+                            Style="{StaticResource AccentButton}" Margin="0"/>
+                  </StackPanel>
+                  <TextBlock x:Name="LauncherResultText" Style="{StaticResource Caption}"
+                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </DockPanel>
+              </StackPanel>
+            </Border>
+          </Grid>
         </TabItem>
       </TabControl>
 

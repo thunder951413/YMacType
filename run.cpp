@@ -857,10 +857,80 @@ static HRESULT HookAndExecute(int show)
 	return initialized ? S_OK : HRESULT_FROM_WIN32(ERROR_DLL_INIT_FAILED);
 }
 
+// Hook host mode (`--hook <parentPid>`), started by the YMacType service once
+// per interactive session and once per architecture. It installs the global
+// WH_GETMESSAGE hook that makes Windows load the core DLL into every GUI
+// process of the desktop, then idles until the parent (the service) exits.
+// The hook procedure only runs inside the target processes, never here: this
+// thread has no message queue activity and the DLL was mapped without
+// resolving its imports.
+static HRESULT RunHookHost(DWORD parentProcessId)
+{
+	HOOKPROC proc = reinterpret_cast<HOOKPROC>(
+		GetProcAddress(hinstDLL, "GetMsgProc"));
+	if (!proc) {
+		g_loaderFailureStage = 20;
+		return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+	}
+
+	HANDLE parent = NULL;
+	if (parentProcessId) {
+		parent = OpenProcess(SYNCHRONIZE, FALSE, parentProcessId);
+		if (!parent) {
+			g_loaderFailureStage = 21;
+			return HresultFromLastError();
+		}
+	}
+
+	HHOOK hook = SetWindowsHookExW(WH_GETMESSAGE, proc, hinstDLL, 0);
+	if (!hook) {
+		const HRESULT hr = HresultFromLastError();
+		g_loaderFailureStage = 22;
+		if (parent)
+			CloseHandle(parent);
+		return hr;
+	}
+
+	MacTypeLog(
+		MacTypeLogLevel::Info,
+		MacTypeDiagnosticCode::HookHostRunning,
+		L"hook host running (parent pid %lu)",
+		parentProcessId);
+
+	if (parent) {
+		WaitForSingleObject(parent, INFINITE);
+		CloseHandle(parent);
+	}
+	else {
+		// No parent to watch: stay installed until the process is killed.
+		HANDLE never = CreateEventW(NULL, TRUE, FALSE, NULL);
+		if (never)
+			WaitForSingleObject(never, INFINITE);
+	}
+
+	UnhookWindowsHookEx(hook);
+	return S_OK;
+}
+
 int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 {
 	_CrtSetDbgFlag(_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) | _CRTDBG_LEAK_CHECK_DF);
 	OleInitialize(NULL);
+
+	bool hookMode = false;
+	DWORD hookParentProcessId = 0;
+	{
+		int count = 0;
+		LPWSTR* parsed = CommandLineToArgvW(GetCommandLineW(), &count);
+		if (parsed) {
+			if (count >= 2 && _wcsicmp(parsed[1], L"--hook") == 0) {
+				hookMode = true;
+				if (count >= 3)
+					hookParentProcessId = wcstoul(parsed[2], nullptr, 10);
+			}
+			LocalFree(parsed);
+		}
+	}
 
 	WCHAR path[MAX_PATH];
 	if (GetModuleFileNameW(NULL, path, _countof(path))) {
@@ -872,7 +942,10 @@ int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 		hinstDLL = LoadLibraryExW(path, NULL, DONT_RESOLVE_DLL_REFERENCES);
 	}
 	if (!hinstDLL) {
-		errmsg(IDS_DLL, HresultFromLastError());
+		if (hookMode)
+			g_loaderFailureStage = 23;	// no message box in a service session
+		else
+			errmsg(IDS_DLL, HresultFromLastError());
 	}
 	else {
 		PathRemoveFileSpecW(path);
@@ -882,7 +955,10 @@ int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 		int argumentCount = 0;
 		LPWSTR* arguments = CommandLineToArgvW(
 			GetCommandLineW(), &argumentCount);
-		if (arguments &&
+		if (hookMode) {
+			hr = RunHookHost(hookParentProcessId);
+		}
+		else if (arguments &&
 			argumentCount == 5 &&
 			_wcsicmp(arguments[1], L"--attach") == 0) {
 			const DWORD processId =
@@ -897,7 +973,7 @@ int WINAPI wWinMain(HINSTANCE ins, HINSTANCE prev, LPWSTR cmd, int show)
 		}
 		if (arguments)
 			LocalFree(arguments);
-		if (hr != S_OK) {
+		if (hr != S_OK && !hookMode) {
 			errmsg(IDC_EXEC, hr);
 		}
 	}

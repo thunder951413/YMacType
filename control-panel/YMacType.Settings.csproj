@@ -8,13 +8,15 @@
     <AssemblyName>YMacType.Settings</AssemblyName>
     <RootNamespace>YMacType.Settings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2026.1020.2</Version>
-    <FileVersion>1.2026.1020.2</FileVersion>
-    <AssemblyVersion>1.2026.1020.2</AssemblyVersion>
+    <StartupObject>YMacType.Settings.Program</StartupObject>
+    <Version>1.2026.1020.3</Version>
+    <FileVersion>1.2026.1020.3</FileVersion>
+    <AssemblyVersion>1.2026.1020.3</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 </Project>

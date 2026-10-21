@@ -88,14 +88,14 @@ internal static class Installer
         InstallBundledProfile(source, backupRoot);
         ReplaceStartMenuShortcuts(destination, backupRoot);
         RemoveLegacyUninstallEntry(backupRoot);
-        var serviceConfigured = ConfigureService();
+        var serviceCreated = !ServiceInstalled();
+        ConfigureService();
         ConfigureTrayStartup(destination);
         StartTray(destination);
 
-        var mode = serviceConfigured
-            ? "服务模式：Automatic / LocalSystem"
-            : "未检测到 MacType 服务，已按托盘模式运行（MacTray.exe）。\n" +
-              "如需服务模式，请在 MacType 安装器或 MacType Tuner 中启用“服务模式”。";
+        var mode = serviceCreated
+            ? "服务模式：Automatic / LocalSystem（已创建 YMacType 服务）"
+            : "服务模式：Automatic / LocalSystem";
         return
             $"新设置面板已安装。\n\n" +
             $"已删除旧组件：{removed} 个\n" +
@@ -103,7 +103,7 @@ internal static class Installer
             $"{mode}\n" +
             $"托盘面板：登录时自动启动\n" +
             $"备份位置：{backupRoot}\n\n" +
-            "MacTray.exe 仅作为无界面的注入宿主保留。";
+            "原版 MacTray 服务如果存在会继续使用；没有时由 YMacType 服务接管。";
     }
 
     private static void ConfigureTrayStartup(string panelPath)
@@ -344,18 +344,62 @@ internal static class Installer
         shortcutObject.Save();
     }
 
-    // Returns true when the MacType service exists and was configured.
-    // When it does not exist (MacType was installed in tray or registry
-    // mode) the service is left alone and MacTray.exe is started instead,
-    // so installation still succeeds.
-    private static bool ConfigureService()
+    // Makes sure a "MacType" service exists. An existing one (the original
+    // MacTray service, or an earlier YMacType one) is left as it is; when
+    // there is none, YMacType registers its own service host.
+    internal static bool EnsureServiceRegistered()
     {
-        if (!ServiceInstalled())
-        {
-            StartMacTrayIfNeeded();
+        if (ServiceInstalled())
             return false;
+
+        var panel = SafeInstallPath("YMacType.Settings.exe");
+        foreach (var name in new[]
+                 {
+                     "YMacType.Settings.exe",
+                     "MacLoader.exe",
+                     "MacLoader64.exe",
+                     "MacType.Core.dll",
+                     "MacType64.Core.dll"
+                 })
+        {
+            if (!File.Exists(SafeInstallPath(name)))
+                throw new FileNotFoundException(
+                    "安装目录里缺少 " + name + "，无法创建服务。请先运行 " +
+                    "YMacType.Settings.exe --install。",
+                    SafeInstallPath(name));
         }
 
+        // Two hook hosts for the same DLL would only waste work.
+        StopMacTray();
+        RunSc(
+            "create MacType binPath= \"\\\"" + panel + "\\\" --service\" " +
+            "start= auto obj= LocalSystem DisplayName= \"MacType\"");
+        return true;
+    }
+
+    private static void StopMacTray()
+    {
+        foreach (var process in Process.GetProcessesByName("MacTray"))
+        {
+            try
+            {
+                process.Kill();
+                process.WaitForExit(5000);
+            }
+            catch
+            {
+                // It may already be gone, or belong to another user.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+    }
+
+    private static void ConfigureService()
+    {
+        EnsureServiceRegistered();
         RunSc("config MacType start= auto obj= LocalSystem");
         RunSc(
             "failure MacType reset= 86400 " +
@@ -366,7 +410,6 @@ internal static class Installer
             "\"YMacType Windows 11 font rendering injection service\"");
         if (!ServiceRunning())
             RunSc("start MacType");
-        return true;
     }
 
     // sc.exe reports error 1060 when no service with that name exists.
@@ -397,32 +440,6 @@ internal static class Installer
         {
             return false;
         }
-    }
-
-    // Tray mode: MacTray.exe injects the DLL for the logged-in user.
-    internal static bool IsMacTrayRunning()
-    {
-        var processes = Process.GetProcessesByName("MacTray");
-        var running = processes.Length != 0;
-        foreach (var process in processes)
-            process.Dispose();
-        return running;
-    }
-
-    internal static bool StartMacTrayIfNeeded()
-    {
-        var tray = SafeInstallPath("MacTray.exe");
-        if (!File.Exists(tray))
-            return false;
-        if (IsMacTrayRunning())
-            return true;
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = tray,
-            WorkingDirectory = InstallDirectory,
-            UseShellExecute = true
-        });
-        return true;
     }
 
     private static void RunSc(string arguments)
