@@ -87,11 +87,32 @@ namespace YMacType.Settings
             base.OnStartup(e);
             ApplyTheme();
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
-            if (System.Array.Exists(
-                    e.Args,
-                    argument => argument.Equals(
-                        "--install",
-                        System.StringComparison.OrdinalIgnoreCase)))
+            var install = System.Array.Exists(
+                e.Args,
+                argument => argument.Equals(
+                    "--install",
+                    System.StringComparison.OrdinalIgnoreCase));
+            if (!install &&
+                e.Args.Length == 0 &&
+                !Installer.IsRunningFromInstallDirectory())
+            {
+                // Started by double-clicking the extracted release folder.
+                var answer = MessageBox.Show(
+                    "要把 YMacType 安装到 C:\\Program Files\\MacType 吗？\n\n" +
+                    "会复制核心文件、加载器和配置，旧文件先备份；" +
+                    "没有 MacType 服务时会创建一个并启动。",
+                    "安装 YMacType",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                if (answer != MessageBoxResult.Yes)
+                {
+                    Shutdown(0);
+                    return;
+                }
+                install = true;
+            }
+
+            if (install)
             {
                 try
                 {

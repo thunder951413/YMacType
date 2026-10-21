@@ -12,6 +12,19 @@ namespace YMacType.Settings
 internal static class Installer
 {
     private const string InstallDirectory = @"C:\Program Files\MacType";
+
+    // True when this exe is the installed copy. A copy anywhere else (for
+    // example the extracted release folder) offers to install itself.
+    public static bool IsRunningFromInstallDirectory()
+    {
+        var module = Process.GetCurrentProcess().MainModule?.FileName;
+        if (string.IsNullOrEmpty(module))
+            return true;
+        return string.Equals(
+            Path.GetDirectoryName(Path.GetFullPath(module))?.TrimEnd('\\'),
+            InstallDirectory,
+            StringComparison.OrdinalIgnoreCase);
+    }
     private const string TrayTaskName = "YMacType Settings Tray";
 
     private static readonly string[] ObsoleteFiles =
