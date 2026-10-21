@@ -9,9 +9,9 @@
     <RootNamespace>YMacType.Settings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>YMacType.Settings.Program</StartupObject>
-    <Version>1.2026.1020.6</Version>
-    <FileVersion>1.2026.1020.6</FileVersion>
-    <AssemblyVersion>1.2026.1020.6</AssemblyVersion>
+    <Version>1.2026.1020.7</Version>
+    <FileVersion>1.2026.1020.7</FileVersion>
+    <AssemblyVersion>1.2026.1020.7</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />

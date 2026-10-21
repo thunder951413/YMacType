@@ -289,6 +289,8 @@ public partial class MainWindow : Window
         _allowClose = true;
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        PanelLog.Write("exit requested from the tray");
+        PanelLog.TerminateAfter(5000);
         Application.Current.Shutdown();
     }
 

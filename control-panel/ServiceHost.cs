@@ -50,7 +50,9 @@ internal static class Program
                 e.Handled = true;
                 // A failure before the window exists would leave an invisible
                 // process behind; end it instead.
-                if (application.MainWindow == null)
+                if (application.Dispatcher.HasShutdownStarted)
+                    PanelLog.TerminateSelf(1);
+                else if (application.MainWindow == null)
                     application.Shutdown(1);
             };
             application.InitializeComponent();

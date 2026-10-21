@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace YMacType.Settings
 {
@@ -10,6 +12,36 @@ namespace YMacType.Settings
 internal static class PanelLog
 {
     private static readonly object Gate = new object();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll")]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+    // Ends this process immediately, without running DLL detach code. The
+    // panel can have the core injected into it, and a normal exit that stalls
+    // there would leave an invisible process holding the single-instance
+    // mutex.
+    public static void TerminateSelf(uint exitCode)
+    {
+        Write("terminating process, exit code " + exitCode);
+        TerminateProcess(GetCurrentProcess(), exitCode);
+    }
+
+    // Safety net for an exit that does not finish by itself.
+    public static void TerminateAfter(int milliseconds)
+    {
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(milliseconds);
+            TerminateSelf(0);
+        })
+        {
+            IsBackground = true
+        };
+        watchdog.Start();
+    }
 
     public static string Path => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),

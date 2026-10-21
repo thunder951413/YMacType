@@ -240,7 +240,18 @@ namespace YMacType.Settings
                     }
                     catch (WaitHandleCannotBeOpenedException)
                     {
-                        // Fall back to restoring the native window below.
+                        // No show event. Either that instance is still
+                        // starting, or it is a leftover that never finished
+                        // exiting; the latter would swallow every launch.
+                        if (DateTime.Now - process.StartTime >
+                            TimeSpan.FromSeconds(15))
+                        {
+                            PanelLog.Write(
+                                "ending stale instance " + process.Id);
+                            process.Kill();
+                            process.WaitForExit(3000);
+                            continue;
+                        }
                     }
                     if (window != IntPtr.Zero)
                     {
@@ -263,15 +274,26 @@ namespace YMacType.Settings
 
         protected override void OnExit(ExitEventArgs e)
         {
-            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-            _showRegistration?.Unregister(null);
-            _showEvent?.Dispose();
-            if (_instanceMutex != null)
+            PanelLog.Write("exiting, code " + e.ApplicationExitCode);
+            try
             {
-                _instanceMutex.ReleaseMutex();
-                _instanceMutex.Dispose();
+                SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+                _showRegistration?.Unregister(null);
+                _showEvent?.Dispose();
+                if (_instanceMutex != null)
+                {
+                    _instanceMutex.ReleaseMutex();
+                    _instanceMutex.Dispose();
+                }
+                base.OnExit(e);
             }
-            base.OnExit(e);
+            catch (Exception exception)
+            {
+                PanelLog.Write("error while exiting: " + exception);
+            }
+
+            // Do not rely on a normal process exit (see PanelLog).
+            PanelLog.TerminateSelf((uint)e.ApplicationExitCode);
         }
 
         [DllImport("user32.dll")]
